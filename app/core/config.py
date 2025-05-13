@@ -23,8 +23,8 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
-    # Database
-    DATABASE_URL: str = "sqlite:///./app.db"
+    # Database postgres
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost/botaas"
 
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")

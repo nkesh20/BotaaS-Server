@@ -16,6 +16,10 @@ pytest = "^8.3.5"
 pytest-cov = "^6.1.1"
 httpx = "^0.28.1"
 pydantic-settings = "^2.9.1"
+pyjwt = {extras = ["crypto"], version = "^2.10.1"}
+python-multipart = "^0.0.20"
+email-validator = "^2.2.0"
+psycopg2-binary = "^2.9.10"
 
 
 [build-system]
