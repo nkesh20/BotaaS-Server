@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -17,7 +17,7 @@ class TelegramBotBase(BaseModel):
 class TelegramBotCreate(BaseModel):
     token: str
 
-    @validator('token')
+    @field_validator('token')
     def validate_token(cls, v):
         if not v or len(v.strip()) == 0:
             raise ValueError('Token cannot be empty')
