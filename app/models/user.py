@@ -1,7 +1,6 @@
 from sqlalchemy import Column, Integer, String, Boolean, DateTime
 from datetime import datetime
-
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, relationship
 
 from app.models.base import Base
 from app.schemas.user import UserCreate, UserUpdate
@@ -21,6 +20,9 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship with telegram bots
+    telegram_bots = relationship("TelegramBot", back_populates="user", cascade="all, delete-orphan")
 
     @classmethod
     def get_by_id(cls, db: Session, user_id: int):
