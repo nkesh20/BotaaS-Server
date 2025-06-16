@@ -1,17 +1,23 @@
+from datetime import datetime
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Dict, Any
 
 from app.api.deps import get_current_user
 from app.db.session import get_db
+from app.models.flow import Flow
 from app.models.telegram_bot import TelegramBot
 from app.models.user import User
+from app.schemas.flow import FlowExecutionContext
 from app.schemas.telegram_bot import (
     TelegramBotCreate,
     TelegramBotResponse,
     TelegramBotUpdate,
     TelegramBotListResponse
 )
+from app.services.flow_engine import FlowEngine
 from app.services.telegram_service import TelegramService
 
 router = APIRouter(prefix="/telegram-bots", tags=["telegram-bots"])
@@ -49,6 +55,17 @@ async def create_telegram_bot(
 
         # Create bot in database
         db_bot = TelegramBot.create(db, current_user.id, bot_info)
+
+        webhook_result = await TelegramService.setup_bot_automatically(
+            bot_create.token,
+            db_bot.id
+        )
+
+        if webhook_result["success"]:
+            print(f"✅ Webhook automatically configured for bot {db_bot.username}")
+        else:
+            print(f"⚠️ Webhook setup failed for bot {db_bot.username}: {webhook_result.get('error')}")
+            # Don't fail bot creation, just log the issue
 
         return db_bot
 
@@ -265,3 +282,223 @@ def delete_bot(
         )
 
     return {"message": "Bot deleted successfully"}
+
+
+@router.post("/{bot_id}/setup-webhook")
+async def setup_bot_webhook(
+        bot_id: int,
+        webhook_base_url: str,  # e.g., "https://yourdomain.com"
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Set up webhook for a Telegram bot to start receiving messages.
+    """
+    try:
+        # Get the bot
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Construct webhook URL
+        webhook_url = f"{webhook_base_url}/api/v1/telegram/webhook/{bot.token}"
+
+        # Set the webhook with Telegram
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{bot.token}/setWebhook",
+                json={"url": webhook_url}
+            )
+            result = response.json()
+
+        if result.get("ok"):
+            return {
+                "success": True,
+                "message": "Webhook configured successfully",
+                "webhook_url": webhook_url,
+                "bot_username": bot.username
+            }
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to set webhook: {result.get('description')}"
+            )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{bot_id}/webhook-info")
+async def get_webhook_info(
+        bot_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Get current webhook information for a bot.
+    """
+    try:
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Get webhook info from Telegram
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.telegram.org/bot{bot.token}/getWebhookInfo"
+            )
+            webhook_info = response.json()
+
+        # Get default flow info
+        default_flow = Flow.get_default_flow(db, bot_id)
+
+        return {
+            "bot": {
+                "id": bot.id,
+                "username": bot.username,
+                "first_name": bot.first_name
+            },
+            "webhook": webhook_info.get("result", {}),
+            "default_flow": {
+                "id": default_flow.id,
+                "name": default_flow.name,
+                "is_active": default_flow.is_active
+            } if default_flow else None,
+            "flows_count": len(Flow.get_by_bot_id(db, bot_id))
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{bot_id}/test-flow")
+async def test_bot_flow(
+        bot_id: int,
+        test_message: str = "Hello",
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Test the default flow for a bot without going through Telegram.
+    """
+    try:
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Find default flow
+        default_flow = Flow.get_default_flow(db, bot_id)
+        if not default_flow:
+            return {"error": "No default flow configured for this bot"}
+
+        # Create test context
+        context = FlowExecutionContext(
+            user_id="test_user",
+            session_id=f"test_{int(datetime.now().timestamp())}",
+            variables={"test_mode": True}
+        )
+
+        # Execute flow
+        engine = FlowEngine(db)
+        try:
+            result = await engine.execute_flow(default_flow.id, test_message, context)
+            return {
+                "success": result.success,
+                "input_message": test_message,
+                "bot_response": result.response_message,
+                "quick_replies": result.quick_replies,
+                "variables_updated": result.variables_updated,
+                "actions_performed": result.actions_performed,
+                "next_node": result.next_node_id,
+                "error": result.error_message
+            }
+        finally:
+            await engine.close()
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{bot_id}/status", response_model=Dict[str, Any])
+async def get_bot_status(
+        bot_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive bot status including webhook verification.
+    """
+    print("hiii")
+    try:
+        # Get bot from database
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Verify webhook status
+        webhook_status = await TelegramService.verify_webhook_setup(bot.token)
+
+        print("error 1")
+
+        # Get default flow info
+        default_flow = Flow.get_default_flow(db, bot_id)
+        print("error 2")
+        all_flows = Flow.get_by_bot_id(db, bot_id)
+        print("error 3")
+        return {
+            "bot": {
+                "id": bot.id,
+                "username": bot.username,
+                "first_name": bot.first_name,
+                "is_active": bot.is_active
+            },
+            "webhook": {
+                "is_configured": webhook_status["is_configured"],
+                "is_correct": webhook_status["is_correct"],
+                "url": webhook_status.get("current_url"),
+                "expected_url": webhook_status.get("expected_url")
+            },
+            "flows": {
+                "default_flow": {
+                    "id": default_flow.id,
+                    "name": default_flow.name,
+                    "is_active": default_flow.is_active
+                } if default_flow else None,
+                "total_count": len(all_flows),
+                "active_count": len([f for f in all_flows if f.is_active])
+            },
+            "status": "ready" if (webhook_status["is_configured"] and default_flow) else "needs_setup"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{bot_id}/fix-webhook")
+async def fix_webhook(
+        bot_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Automatically fix webhook configuration if it's broken.
+    """
+    try:
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Re-setup webhook
+        result = await TelegramService.setup_bot_automatically(bot.token, bot.id)
+
+        if result["success"]:
+            return {
+                "success": True,
+                "message": "Webhook fixed successfully!",
+                "webhook_url": result["webhook_url"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

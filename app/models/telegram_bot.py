@@ -34,6 +34,8 @@ class TelegramBot(Base):
 
     # Relationship
     user = relationship("User", back_populates="telegram_bots")
+    flows = relationship("Flow", back_populates="bot", cascade="all, delete-orphan")
+
 
     @classmethod
     def get_by_id(cls, db: Session, bot_id: int):
