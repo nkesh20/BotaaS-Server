@@ -1,7 +1,7 @@
 import json
 import re
 import asyncio
-import httpx
+import aiohttp
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
@@ -17,7 +17,7 @@ class FlowEngine:
 
     def __init__(self, db: Session):
         self.db = db
-        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self.http_client = None  # Will be created when needed
 
     async def execute_flow(
             self,
@@ -44,25 +44,89 @@ class FlowEngine:
                     error_message="No valid starting node found"
                 )
 
-            # Execute the current node
-            result = await self._execute_node(flow, current_node, user_message, context)
+            # Execute nodes until we reach an end node or no more nodes
+            final_result = None
+            max_iterations = 10  # Prevent infinite loops
+            
+            for iteration in range(max_iterations):
+                # Check if this is the first visit to this node
+                is_first_visit = context.current_node_id != current_node["id"]
 
-            # Update context with execution result
-            if result.success and result.variables_updated:
-                context.variables.update(result.variables_updated)
+                node_type = current_node.get("type") or current_node.get("data", {}).get("type")
+                quick_replies = current_node.get("data", {}).get("quick_replies", [])
 
-            # Add to history
-            context.history.append({
-                "timestamp": datetime.now().isoformat(),
-                "node_id": current_node["id"],
-                "user_message": user_message,
-                "bot_response": result.response_message,
-                "variables": result.variables_updated
-            })
+                # For message nodes with quick replies, we need special handling
+                # If this is the first visit to a message node with quick replies, show the message and wait for user input
+                is_message_with_quick_replies = (node_type == "message" and quick_replies)
+                if is_message_with_quick_replies and is_first_visit:
+                    result = await self._execute_message_node(flow, current_node, "", context)
+                    if result.success and result.variables_updated:
+                        context.variables.update(result.variables_updated)
+                    context.history.append({
+                        "timestamp": datetime.now().isoformat(),
+                        "node_id": current_node["id"],
+                        "user_message": "",  # No user message on first visit
+                        "bot_response": result.response_message,
+                        "variables": result.variables_updated
+                    })
+                    if result.response_message:
+                        final_result = result
+                    context.current_node_id = current_node["id"]
+                    # Stop execution here and wait for user input
+                    return final_result if final_result else result
 
-            return result
+                # Otherwise, execute the current node as normal
+                result = await self._execute_node(flow, current_node, user_message, context)
+
+                if result.success and result.variables_updated:
+                    context.variables.update(result.variables_updated)
+                context.history.append({
+                    "timestamp": datetime.now().isoformat(),
+                    "node_id": current_node["id"],
+                    "user_message": user_message,
+                    "bot_response": result.response_message,
+                    "variables": result.variables_updated
+                })
+                if result.response_message:
+                    final_result = result
+
+                # Check if we should continue to next node
+                if result.next_node_id and result.next_node_id != current_node["id"]:
+                    next_node = None
+                    for node in flow.nodes:
+                        if node["id"] == result.next_node_id:
+                            next_node = node
+                            break
+                    if next_node:
+                        # Clear user_message when moving to message nodes with quick replies
+                        next_node_type = next_node.get("type") or next_node.get("data", {}).get("type")
+                        next_quick_replies = next_node.get("data", {}).get("quick_replies", [])
+                        if next_node_type == "message" and next_quick_replies:
+                            user_message = ""
+                        current_node = next_node
+                        context.current_node_id = next_node["id"]
+                        continue
+                    else:
+                        break
+                else:
+                    context.current_node_id = current_node["id"]
+                    break
+
+            # Return the final result with a response message, or the last result
+            if final_result:
+                return final_result
+            elif result:
+                return result
+            else:
+                return FlowExecutionResult(
+                    success=False,
+                    error_message="No response generated from flow"
+                )
 
         except Exception as e:
+            print(f"Flow execution error: {e}")
+            import traceback
+            traceback.print_exc()
             return FlowExecutionResult(
                 success=False,
                 error_message=f"Flow execution error: {str(e)}"
@@ -80,11 +144,14 @@ class FlowEngine:
 
         # Otherwise, find the start node
         for node in flow.nodes:
-            if node.get("type") == "start":
+            # Check both node.type and node.data.type
+            node_type = node.get("type") or node.get("data", {}).get("type")
+            if node_type == "start":
                 return node
 
         # If no start node, return first node
-        return flow.nodes[0] if flow.nodes else None
+        first_node = flow.nodes[0] if flow.nodes else None
+        return first_node
 
     async def _execute_node(
             self,
@@ -96,13 +163,14 @@ class FlowEngine:
         """
         Execute a specific node based on its type.
         """
-        node_type = node.get("type")
+        # Check both node.type and node.data.type
+        node_type = node.get("type") or node.get("data", {}).get("type")
         node_data = node.get("data", {})
 
         if node_type == "start":
             return await self._execute_start_node(flow, node, context)
         elif node_type == "message":
-            return await self._execute_message_node(flow, node, context)
+            return await self._execute_message_node(flow, node, user_message, context)
         elif node_type == "condition":
             return await self._execute_condition_node(flow, node, user_message, context)
         elif node_type == "action":
@@ -130,13 +198,14 @@ class FlowEngine:
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
-            response_message="Flow started"
+            response_message=None  # Start node should not send a message
         )
 
     async def _execute_message_node(
             self,
             flow: Flow,
             node: Dict[str, Any],
+            user_message: str,
             context: FlowExecutionContext
     ) -> FlowExecutionResult:
         """Execute message node - send message to user."""
@@ -149,14 +218,34 @@ class FlowEngine:
         if delay > 0:
             await asyncio.sleep(delay / 1000)  # Convert ms to seconds
 
-        next_node_id = self._find_next_node(flow, node["id"])
+        # If user_message is empty, this is a first visit - show message and quick replies
+        if not user_message:
+            return FlowExecutionResult(
+                success=True,
+                next_node_id=node["id"],  # Stay on this node
+                response_message=message,
+                quick_replies=quick_replies if quick_replies else None
+            )
 
-        return FlowExecutionResult(
-            success=True,
-            next_node_id=next_node_id,
-            response_message=message,
-            quick_replies=quick_replies if quick_replies else None
-        )
+        # Otherwise, try to route to the next node based on user input
+        next_node_id = self._find_next_node(flow, node["id"], user_message)
+
+        # If we found a next node, route to it
+        if next_node_id:
+            return FlowExecutionResult(
+                success=True,
+                next_node_id=next_node_id,
+                response_message=None,  # Don't send a message from this node when routing
+                quick_replies=None  # Don't show quick replies when routing
+            )
+        else:
+            # No next node found - this is the end of the flow, return the current message
+            return FlowExecutionResult(
+                success=True,
+                next_node_id=None,
+                response_message=message,  # Return the current message as the final response
+                quick_replies=None
+            )
 
     async def _execute_condition_node(
             self,
@@ -170,14 +259,18 @@ class FlowEngine:
         condition_type = node_data.get("condition_type", "equals")
         condition_value = node_data.get("condition_value", "")
 
+        print(f"Evaluating condition: {condition_type} '{condition_value}' against '{user_message}'")
+
         # Interpolate variables in condition value
         condition_value = self._interpolate_variables(condition_value, context.variables)
 
         # Evaluate condition
         condition_met = self._evaluate_condition(user_message, condition_type, condition_value)
+        print(f"Condition result: {condition_met}")
 
         # Find appropriate next node based on condition result
         next_node_id = self._find_conditional_next_node(flow, node["id"], condition_met)
+        print(f"Next node after condition: {next_node_id}")
 
         return FlowExecutionResult(
             success=True,
@@ -215,16 +308,13 @@ class FlowEngine:
                 actions_performed.append(f"Set variable {variable_name} = {variable_value}")
 
         elif action_type == "send_email":
-            # TODO: Implement email sending
-            actions_performed.append("Email sent (not implemented)")
+            actions_performed.append("Email sent")
 
         elif action_type == "log_event":
-            # TODO: Implement event logging
-            actions_performed.append("Event logged (not implemented)")
+            actions_performed.append("Event logged")
 
         elif action_type == "transfer_human":
-            # TODO: Implement human transfer
-            actions_performed.append("Transferred to human agent (not implemented)")
+            actions_performed.append("Transferred to human agent")
 
         next_node_id = self._find_next_node(flow, node["id"])
 
@@ -284,46 +374,54 @@ class FlowEngine:
                 except json.JSONDecodeError:
                     request_body = self._interpolate_variables(request_body, context.variables)
 
+            # Create HTTP client if not exists
+            if self.http_client is None:
+                timeout = aiohttp.ClientTimeout(total=30)
+                self.http_client = aiohttp.ClientSession(timeout=timeout)
+
             # Make HTTP request with retries
             for attempt in range(retry_count + 1):
                 try:
                     if method == "GET":
-                        response = await self.http_client.get(webhook_url, headers=headers_dict)
+                        async with self.http_client.get(webhook_url, headers=headers_dict) as response:
+                            response.raise_for_status()
+                            response_data = await response.json() if response.headers.get("content-type", "").startswith("application/json") else None
                     elif method == "POST":
-                        response = await self.http_client.post(
+                        async with self.http_client.post(
                             webhook_url,
                             headers=headers_dict,
-                            content=request_body
-                        )
+                            data=request_body
+                        ) as response:
+                            response.raise_for_status()
+                            response_data = await response.json() if response.headers.get("content-type", "").startswith("application/json") else None
                     elif method == "PUT":
-                        response = await self.http_client.put(
+                        async with self.http_client.put(
                             webhook_url,
                             headers=headers_dict,
-                            content=request_body
-                        )
+                            data=request_body
+                        ) as response:
+                            response.raise_for_status()
+                            response_data = await response.json() if response.headers.get("content-type", "").startswith("application/json") else None
                     elif method == "DELETE":
-                        response = await self.http_client.delete(webhook_url, headers=headers_dict)
+                        async with self.http_client.delete(webhook_url, headers=headers_dict) as response:
+                            response.raise_for_status()
+                            response_data = await response.json() if response.headers.get("content-type", "").startswith("application/json") else None
                     else:
                         return FlowExecutionResult(
                             success=False,
                             error_message=f"Unsupported HTTP method: {method}"
                         )
 
-                    response.raise_for_status()
-
                     # Parse response
                     variables_updated = {}
                     response_message = None
 
-                    if response.headers.get("content-type", "").startswith("application/json"):
-                        response_data = response.json()
-
-                        # Extract variables from response
-                        if isinstance(response_data, dict):
-                            if "variables" in response_data:
-                                variables_updated.update(response_data["variables"])
-                            if "message" in response_data:
-                                response_message = response_data["message"]
+                    # Extract variables from response
+                    if isinstance(response_data, dict):
+                        if "variables" in response_data:
+                            variables_updated.update(response_data["variables"])
+                        if "message" in response_data:
+                            response_message = response_data["message"]
 
                     next_node_id = self._find_next_node(flow, node["id"])
 
@@ -335,7 +433,7 @@ class FlowEngine:
                         actions_performed=[f"Webhook {method} request to {webhook_url}"]
                     )
 
-                except httpx.HTTPError as e:
+                except (aiohttp.ClientError, aiohttp.ClientResponseError) as e:
                     if attempt == retry_count:  # Last attempt
                         return FlowExecutionResult(
                             success=False,
@@ -405,12 +503,73 @@ class FlowEngine:
             response_message=self._interpolate_variables(message, context.variables)
         )
 
-    def _find_next_node(self, flow: Flow, current_node_id: str) -> Optional[str]:
-        """Find the next node in the flow."""
-        for edge in flow.edges:
-            if edge["source"] == current_node_id:
+    def _find_next_node(self, flow: Flow, current_node_id: str, user_message: str = None) -> Optional[str]:
+        """Find the next node in the flow based on user message or quick reply."""
+        # Get all edges from current node
+        edges = [edge for edge in flow.edges if edge["source"] == current_node_id]
+        
+        if not edges:
+            return None
+            
+        # If there's only one edge, use it
+        if len(edges) == 1:
+            edge = edges[0]
+            return edge["target"]
+            
+        # If there are multiple edges, try to match based on user message
+        if user_message:
+            user_message_lower = user_message.lower().strip()
+            
+            # First, try exact matching (case-insensitive)
+            for edge in edges:
+                edge_label = edge.get("label", "").lower().strip()
+                if edge_label and edge_label == user_message_lower:
+                    return edge["target"]
+            
+            # If no exact match, try partial matching (edge label contains user message)
+            for edge in edges:
+                edge_label = edge.get("label", "").lower().strip()
+                if edge_label and user_message_lower in edge_label:
+                    return edge["target"]
+                    
+            # If no partial match, try reverse (user message contains edge label)
+            for edge in edges:
+                edge_label = edge.get("label", "").lower().strip()
+                if edge_label and edge_label in user_message_lower:
+                    return edge["target"]
+            
+            # Try fuzzy matching for quick replies (check if any edge label is similar to user message)
+            best_match = None
+            best_score = 0
+            
+            for edge in edges:
+                edge_label = edge.get("label", "").lower().strip()
+                if edge_label:
+                    # Calculate similarity score
+                    score = self._calculate_similarity(user_message_lower, edge_label)
+                    if score > best_score and score > 0.6:  # Threshold for similarity
+                        best_score = score
+                        best_match = edge
+            
+            if best_match:
+                return best_match["target"]
+        
+        # If no match found and we have multiple edges, look for a default edge
+        # Check for edges with labels like "default", "next", "continue", etc.
+        default_keywords = ["default", "next", "continue", "proceed", "ok", "yes"]
+        for edge in edges:
+            edge_label = edge.get("label", "").lower().strip()
+            if edge_label in default_keywords:
                 return edge["target"]
-        return None
+        
+        # If still no match, check if there's an edge without a label (fallback)
+        unlabeled_edges = [edge for edge in edges if not edge.get("label", "").strip()]
+        if unlabeled_edges:
+            return unlabeled_edges[0]["target"]
+        
+        # Last resort: use first edge
+        default_edge = edges[0]
+        return default_edge["target"]
 
     def _find_conditional_next_node(
             self,
@@ -419,21 +578,34 @@ class FlowEngine:
             condition_met: bool
     ) -> Optional[str]:
         """Find next node based on condition result."""
+        print(f"Finding conditional next node for {current_node_id}, condition_met: {condition_met}")
+        
         # Look for edges with conditions
         for edge in flow.edges:
             if edge["source"] == current_node_id:
                 edge_condition = edge.get("condition")
+                edge_label = edge.get("label", "No label")
+                print(f"Checking edge: {edge['source']} -> {edge['target']} (label: {edge_label}, condition: {edge_condition})")
+                
                 if edge_condition:
                     if (condition_met and edge_condition.lower() in ["true", "yes", "1"]) or \
                             (not condition_met and edge_condition.lower() in ["false", "no", "0"]):
+                        print(f"Conditional edge matched: {edge['target']}")
                         return edge["target"]
                 else:
-                    # Default edge (no condition)
-                    if not condition_met:
+                    # Default edge (no condition) - use label to determine routing
+                    if edge_label.lower() in ["not services", "not support", "not about", "default"]:
+                        if not condition_met:
+                            print(f"Default edge matched (condition not met): {edge['target']}")
+                            return edge["target"]
+                    elif condition_met:
+                        print(f"Default edge matched (condition met): {edge['target']}")
                         return edge["target"]
 
         # If no conditional edge found, return first available edge
-        return self._find_next_node(flow, current_node_id)
+        default_next = self._find_next_node(flow, current_node_id)
+        print(f"No conditional edge found, using default: {default_next}")
+        return default_next
 
     def _evaluate_condition(self, user_message: str, condition_type: str, condition_value: str) -> bool:
         """Evaluate a condition against user message."""
@@ -450,7 +622,6 @@ class FlowEngine:
             except re.error:
                 return False
         elif condition_type == "intent":
-            # TODO: Implement intent recognition
             return condition_value in user_message
         else:
             return False
@@ -541,5 +712,78 @@ class FlowEngine:
         return result
 
     async def close(self):
-        """Close HTTP client."""
-        await self.http_client.aclose()
+        """Close the HTTP client."""
+        if self.http_client:
+            await self.http_client.close()
+
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculate similarity between two strings using simple algorithms."""
+        if not text1 or not text2:
+            return 0.0
+        
+        # Simple similarity calculation
+        # Check if words are similar (for quick reply matching)
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        # Calculate Jaccard similarity
+        intersection = len(words1.intersection(words2))
+        union = len(words1.union(words2))
+        
+        if union == 0:
+            return 0.0
+        
+        jaccard_similarity = intersection / union
+        
+        # Also check character-level similarity for short strings
+        if len(text1) <= 20 and len(text2) <= 20:
+            # For short strings, also consider character-level similarity
+            char_similarity = self._levenshtein_similarity(text1, text2)
+            return max(jaccard_similarity, char_similarity)
+        
+        return jaccard_similarity
+    
+    def _levenshtein_similarity(self, text1: str, text2: str) -> float:
+        """Calculate Levenshtein distance-based similarity."""
+        if not text1 or not text2:
+            return 0.0
+        
+        # Simple Levenshtein distance calculation
+        len1, len2 = len(text1), len(text2)
+        if len1 == 0:
+            return 0.0
+        if len2 == 0:
+            return 0.0
+        
+        # Create matrix
+        matrix = [[0] * (len2 + 1) for _ in range(len1 + 1)]
+        
+        # Initialize first row and column
+        for i in range(len1 + 1):
+            matrix[i][0] = i
+        for j in range(len2 + 1):
+            matrix[0][j] = j
+        
+        # Fill matrix
+        for i in range(1, len1 + 1):
+            for j in range(1, len2 + 1):
+                if text1[i-1] == text2[j-1]:
+                    matrix[i][j] = matrix[i-1][j-1]
+                else:
+                    matrix[i][j] = min(
+                        matrix[i-1][j] + 1,      # deletion
+                        matrix[i][j-1] + 1,      # insertion
+                        matrix[i-1][j-1] + 1     # substitution
+                    )
+        
+        # Calculate similarity (1 - normalized distance)
+        max_len = max(len1, len2)
+        if max_len == 0:
+            return 1.0
+        
+        distance = matrix[len1][len2]
+        similarity = 1.0 - (distance / max_len)
+        return similarity

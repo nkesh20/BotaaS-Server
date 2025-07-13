@@ -26,6 +26,153 @@ def get_bot_flows(
     Get all flows for a specific bot.
     """
     flows = Flow.get_by_bot_id(db, bot_id=bot_id, skip=skip, limit=limit)
+    
+    # If no flows exist, create a default welcome flow
+    if not flows:
+        default_flow_data = {
+            "bot_id": bot_id,
+            "name": "Welcome Flow",
+            "description": "Default welcome flow for new users",
+            "is_active": True,
+            "is_default": True,
+            "nodes": [
+                {
+                    "id": "start",
+                    "label": "Start",
+                    "data": {"type": "start"},
+                    "position": {"x": 100, "y": 100}
+                },
+                {
+                    "id": "welcome_message",
+                    "label": "Welcome Message",
+                    "data": {
+                        "type": "message",
+                        "content": "Hi! What can we help with?",
+                        "quick_replies": ["Services", "Support", "About"]
+                    },
+                    "position": {"x": 300, "y": 100}
+                },
+                {
+                    "id": "services_response",
+                    "label": "Services Response",
+                    "data": {
+                        "type": "message",
+                        "content": "Here are our services:\n\n🔧 Windows Installation\n🐧 Linux Installation\n🛠️ System Maintenance\n📱 Mobile Support\n\nWhich service do you need?",
+                        "quick_replies": ["Windows Installation", "Linux Installation", "System Maintenance", "Mobile Support", "Back to Menu"]
+                    },
+                    "position": {"x": 500, "y": 50}
+                },
+                {
+                    "id": "support_response",
+                    "label": "Support Response",
+                    "data": {
+                        "type": "message",
+                        "content": "Need help? We're here for you!\n\n📞 Call us: +1-555-0123\n📧 Email: support@botaas.com\n💬 Live chat available 24/7\n\nHow can we assist you?",
+                        "quick_replies": ["Call Support", "Email Support", "Live Chat", "Back to Menu"]
+                    },
+                    "position": {"x": 500, "y": 150}
+                },
+                {
+                    "id": "about_response",
+                    "label": "About Response",
+                    "data": {
+                        "type": "message",
+                        "content": "About BotaaS:\n\n🚀 We provide comprehensive IT services\n💻 Specializing in system installations\n🔧 Expert technical support\n🌍 Serving clients worldwide\n\nFounded in 2024, we've helped thousands of clients with their IT needs.",
+                        "quick_replies": ["Our Team", "Contact Us", "Back to Menu"]
+                    },
+                    "position": {"x": 500, "y": 250}
+                },
+                {
+                    "id": "check_input",
+                    "label": "Check User Input",
+                    "data": {
+                        "type": "condition",
+                        "condition_type": "contains",
+                        "condition_value": "services"
+                    },
+                    "position": {"x": 300, "y": 200}
+                },
+                {
+                    "id": "check_support",
+                    "label": "Check Support Input",
+                    "data": {
+                        "type": "condition",
+                        "condition_type": "contains",
+                        "condition_value": "support"
+                    },
+                    "position": {"x": 300, "y": 300}
+                },
+                {
+                    "id": "check_about",
+                    "label": "Check About Input",
+                    "data": {
+                        "type": "condition",
+                        "condition_type": "contains",
+                        "condition_value": "about"
+                    },
+                    "position": {"x": 300, "y": 400}
+                }
+            ],
+            "edges": [
+                {
+                    "id": "start_to_welcome",
+                    "source": "start",
+                    "target": "welcome_message",
+                    "label": "Next"
+                },
+                {
+                    "id": "welcome_to_check",
+                    "source": "welcome_message",
+                    "target": "check_input",
+                    "label": "User Input"
+                },
+                {
+                    "id": "check_to_services",
+                    "source": "check_input",
+                    "target": "services_response",
+                    "label": "Services"
+                },
+                {
+                    "id": "check_to_support",
+                    "source": "check_input",
+                    "target": "check_support",
+                    "label": "Not Services"
+                },
+                {
+                    "id": "support_check_to_support",
+                    "source": "check_support",
+                    "target": "support_response",
+                    "label": "Support"
+                },
+                {
+                    "id": "support_check_to_about",
+                    "source": "check_support",
+                    "target": "check_about",
+                    "label": "Not Support"
+                },
+                {
+                    "id": "about_check_to_about",
+                    "source": "check_about",
+                    "target": "about_response",
+                    "label": "About"
+                },
+                {
+                    "id": "about_check_to_default",
+                    "source": "check_about",
+                    "target": "welcome_message",
+                    "label": "Default"
+                }
+            ],
+            "triggers": [],
+            "variables": {}
+        }
+        
+        try:
+            default_flow = Flow.create(db, default_flow_data)
+            flows = [default_flow]
+        except Exception as e:
+            print(f"Error creating default flow: {e}")
+    
     return flows
 
 
@@ -45,6 +192,13 @@ def get_flow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Flow not found"
         )
+    
+    # Ensure the flow has the required structure
+    if not flow.nodes:
+        flow.nodes = []
+    if not flow.edges:
+        flow.edges = []
+    
     return flow
 
 
@@ -132,7 +286,7 @@ def activate_flow(
     return {"message": "Flow activated successfully", "flow": updated_flow}
 
 
-@router.post("/{bot_id}/flows/{flow_id}/deactivate")
+@router.post("/{bot_id}/{flow_id}/deactivate")
 def deactivate_flow(
         bot_id: int,
         flow_id: int,
@@ -153,7 +307,28 @@ def deactivate_flow(
     return {"message": "Flow deactivated successfully", "flow": updated_flow}
 
 
-@router.post("/{bot_id}/flows/{flow_id}/execute")
+@router.post("/{bot_id}/{flow_id}/set-default")
+def set_flow_as_default(
+        bot_id: int,
+        flow_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Set a flow as the default flow for a bot.
+    """
+    flow = Flow.get_by_id(db, flow_id=flow_id)
+    if not flow or flow.bot_id != bot_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Flow not found"
+        )
+
+    updated_flow = Flow.set_as_default(db, flow_id=flow_id)
+    return {"message": "Flow set as default successfully", "flow": updated_flow}
+
+
+@router.post("/{bot_id}/{flow_id}/execute")
 async def execute_flow(
         bot_id: int,
         flow_id: int,
@@ -227,6 +402,45 @@ async def webhook_handler(
             "response": result.response_message,
             "quick_replies": result.quick_replies,
             "session_id": session_id
+        }
+    finally:
+        await engine.close()
+
+
+@router.post("/{bot_id}/test-flow")
+async def test_flow_handler(
+        bot_id: int,
+        test_message: str,
+        db: Session = Depends(get_db)
+):
+    """
+    Test a bot's flow with a message (for debugging).
+    """
+    # Find default flow for the bot
+    default_flow = Flow.get_default_flow(db, bot_id)
+    if not default_flow:
+        raise HTTPException(
+            status_code=404,
+            detail="No default flow found for bot"
+        )
+
+    # Execute flow
+    session_id = f"test_session_{int(datetime.now().timestamp())}"
+    context = FlowExecutionContext(
+        user_id="test_user",
+        session_id=session_id,
+        variables={}
+    )
+
+    engine = FlowEngine(db)
+    try:
+        result = await engine.execute_flow(default_flow.id, test_message, context)
+        return {
+            "success": result.success,
+            "response": result.response_message,
+            "quick_replies": result.quick_replies,
+            "session_id": session_id,
+            "error": result.error_message
         }
     finally:
         await engine.close()

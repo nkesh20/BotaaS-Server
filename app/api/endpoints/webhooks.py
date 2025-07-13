@@ -75,7 +75,13 @@ async def telegram_webhook(
         # Execute the flow
         engine = FlowEngine(db)
         try:
+            print(f"Executing flow {default_flow.id} with message: '{text}'")
+            print(f"Flow nodes: {default_flow.nodes}")
+            print(f"Flow edges: {default_flow.edges}")
+            
             result = await engine.execute_flow(default_flow.id, text, context)
+            
+            print(f"Flow execution result: {result}")
 
             if result.success and result.response_message:
                 response = {
@@ -96,6 +102,8 @@ async def telegram_webhook(
                 print(f"Sending response: {result.response_message}")
                 return response
             else:
+                error_msg = f"Flow execution failed: {result.error_message}"
+                print(error_msg)
                 return {
                     "method": "sendMessage",
                     "chat_id": chat_id,
