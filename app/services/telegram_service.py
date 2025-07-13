@@ -1,63 +1,49 @@
-import httpx
 from typing import Dict, Optional, List, Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from telegram import Bot, Update
+from telegram.ext import Application
+from telegram.error import TelegramError, InvalidToken
 
 from app.models.telegram_bot import TelegramBot
-from app.models.flow import Flow
+from app.models.flow import Flow, FlowSession
 from app.services.flow_engine import FlowEngine
 from app.schemas.flow import FlowExecutionContext
 
 
 class TelegramService:
-    BASE_URL = "https://api.telegram.org/bot"
+    """
+    Service for handling Telegram bot operations using python-telegram-bot library.
+    """
 
     @classmethod
     async def get_bot_info(cls, token: str) -> Dict:
         """
         Fetch bot information from Telegram API using the bot token
         """
-        url = f"{cls.BASE_URL}{token}/getMe"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid bot token or Telegram API error"
-                )
-            data = response.json()
-            if not data.get("ok"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Telegram API error: {data.get('description', 'Unknown error')}"
-                )
-            bot_info = data["result"]
-            # Validate that this is actually a bot
-            if not bot_info.get("is_bot"):
-                raise HTTPException(
-                    status_code=400,
-                    detail="The provided token does not belong to a bot"
-                )
+            bot = Bot(token)
+            bot_info = await bot.get_me()
+            
             return {
-                "id": bot_info["id"],
-                "username": bot_info["username"],
-                "first_name": bot_info["first_name"],
-                "is_bot": bot_info["is_bot"],
-                "can_join_groups": bot_info.get("can_join_groups", True),
-                "can_read_all_group_messages": bot_info.get("can_read_all_group_messages", False),
-                "supports_inline_queries": bot_info.get("supports_inline_queries", False),
+                "id": bot_info.id,
+                "username": bot_info.username,
+                "first_name": bot_info.first_name,
+                "is_bot": bot_info.is_bot,
+                "can_join_groups": bot_info.can_join_groups,
+                "can_read_all_group_messages": bot_info.can_read_all_group_messages,
+                "supports_inline_queries": bot_info.supports_inline_queries,
                 "token": token
             }
-        except httpx.TimeoutException:
+        except InvalidToken:
             raise HTTPException(
-                status_code=408,
-                detail="Timeout while connecting to Telegram API"
+                status_code=400,
+                detail="Invalid bot token"
             )
-        except httpx.RequestError as e:
+        except TelegramError as e:
             raise HTTPException(
-                status_code=500,
-                detail=f"Error connecting to Telegram API: {str(e)}"
+                status_code=400,
+                detail=f"Telegram API error: {str(e)}"
             )
 
     @classmethod
@@ -65,19 +51,13 @@ class TelegramService:
         """
         Fetch bot description from Telegram API
         """
-        url = f"{cls.BASE_URL}{token}/getMyDescription"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok"):
-                    result = data.get("result", {})
-                    return {
-                        "description": result.get("description"),
-                    }
-            return {"description": None}
-        except (httpx.TimeoutException, httpx.RequestError):
+            bot = Bot(token)
+            bot_info = await bot.get_my_description()
+            return {
+                "description": bot_info.description,
+            }
+        except TelegramError:
             # If we can't get description, it's not critical
             return {"description": None}
 
@@ -86,19 +66,13 @@ class TelegramService:
         """
         Fetch bot short description from Telegram API
         """
-        url = f"{cls.BASE_URL}{token}/getMyShortDescription"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok"):
-                    result = data.get("result", {})
-                    return {
-                        "short_description": result.get("short_description"),
-                    }
-            return {"short_description": None}
-        except (httpx.TimeoutException, httpx.RequestError):
+            bot = Bot(token)
+            bot_info = await bot.get_my_short_description()
+            return {
+                "short_description": bot_info.short_description,
+            }
+        except TelegramError:
             # If we can't get short description, it's not critical
             return {"short_description": None}
 
@@ -129,22 +103,11 @@ class TelegramService:
         Returns:
             bool: True if webhook was set successfully
         """
-        url = f"{cls.BASE_URL}{token}/setWebhook"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    json={"url": webhook_url},
-                    timeout=10.0
-                )
-
-            if response.status_code != 200:
-                return False
-
-            data = response.json()
-            return data.get("ok", False)
-
-        except (httpx.TimeoutException, httpx.RequestError) as e:
+            bot = Bot(token)
+            result = await bot.set_webhook(url=webhook_url)
+            return result
+        except TelegramError as e:
             print(f"Error setting webhook: {e}")
             return False
 
@@ -156,19 +119,20 @@ class TelegramService:
         Returns:
             Dict: Webhook info including URL, pending updates, etc.
         """
-        url = f"{cls.BASE_URL}{token}/getWebhookInfo"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=10.0)
-
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("ok"):
-                    return data.get("result", {})
-
-            return {}
-
-        except (httpx.TimeoutException, httpx.RequestError) as e:
+            bot = Bot(token)
+            webhook_info = await bot.get_webhook_info()
+            return {
+                "url": webhook_info.url,
+                "has_custom_certificate": webhook_info.has_custom_certificate,
+                "pending_update_count": webhook_info.pending_update_count,
+                "ip_address": webhook_info.ip_address,
+                "last_error_date": webhook_info.last_error_date.isoformat() if webhook_info.last_error_date else None,
+                "last_error_message": webhook_info.last_error_message,
+                "max_connections": webhook_info.max_connections,
+                "allowed_updates": webhook_info.allowed_updates
+            }
+        except TelegramError as e:
             print(f"Error getting webhook info: {e}")
             return {}
 
@@ -177,18 +141,11 @@ class TelegramService:
         """
         Remove webhook for a bot (switches back to polling mode).
         """
-        url = f"{cls.BASE_URL}{token}/deleteWebhook"
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(url, timeout=10.0)
-
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("ok", False)
-
-            return False
-
-        except (httpx.TimeoutException, httpx.RequestError) as e:
+            bot = Bot(token)
+            result = await bot.delete_webhook()
+            return result
+        except TelegramError as e:
             print(f"Error deleting webhook: {e}")
             return False
 
@@ -214,110 +171,97 @@ class TelegramService:
         Returns:
             bool: True if message was sent successfully
         """
-        url = f"{cls.BASE_URL}{token}/sendMessage"
-
-        payload = {
-            "chat_id": chat_id,
-            "text": text
-        }
-
-        if parse_mode:
-            payload["parse_mode"] = parse_mode
-
-        # Add quick replies as keyboard
-        if quick_replies:
-            keyboard = [[{"text": reply}] for reply in quick_replies]
-            payload["reply_markup"] = {
-                "keyboard": keyboard,
-                "resize_keyboard": True,
-                "one_time_keyboard": True
-            }
-
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    url,
-                    json=payload,
-                    timeout=10.0
+            bot = Bot(token)
+            
+            # Prepare reply markup if quick replies are provided
+            reply_markup = None
+            if quick_replies:
+                from telegram import ReplyKeyboardMarkup, KeyboardButton
+                keyboard = [[KeyboardButton(reply)] for reply in quick_replies]
+                reply_markup = ReplyKeyboardMarkup(
+                    keyboard,
+                    resize_keyboard=True,
+                    one_time_keyboard=True
                 )
 
-            return response.status_code == 200
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup
+            )
+            return True
 
-        except (httpx.TimeoutException, httpx.RequestError) as e:
+        except TelegramError as e:
             print(f"Error sending message: {e}")
             return False
 
     @classmethod
-    async def process_telegram_update(
+    async def process_update(
             cls,
             update: Dict[str, Any],
             bot_token: str,
             db: Session
     ) -> Dict[str, Any]:
         """
-        Process incoming Telegram update and execute appropriate flow.
-
-        Args:
-            update: Telegram update object
-            bot_token: Bot token from the webhook URL
-            db: Database session
-
-        Returns:
-            Dict: Response to send back to Telegram
+        Process a Telegram update and execute the appropriate flow.
         """
         try:
-            print(f"Processing Telegram update: {update}")
-
+            # Parse the update using python-telegram-bot
+            telegram_update = Update.de_json(update, Bot(bot_token))
+            
             # Extract message info
-            if "message" not in update:
-                return {"ok": True}  # Ignore non-message updates
+            if not telegram_update.message:
+                return {"ok": True}
 
-            message = update["message"]
-            user_id = message["from"]["id"]
-            chat_id = message["chat"]["id"]
-            text = message.get("text", "")
-
-            print(f"Message: '{text}' from user {user_id} in chat {chat_id}")
+            message = telegram_update.message
+            user_id = message.from_user.id
+            chat_id = message.chat.id
+            text = message.text or ""
 
             # Find the bot by token
             bot = TelegramBot.get_by_token(db, bot_token)
             if not bot:
-                print(f"Bot not found for token: {bot_token[:10]}...")
                 return {"ok": False}
-
-            print(f"Found bot: {bot.username}")
-
-            # Check if bot is active
-            if not bot.is_active:
-                return {
-                    "method": "sendMessage",
-                    "chat_id": chat_id,
-                    "text": f"🤖 {bot.first_name} is currently inactive. Please try again later."
-                }
 
             # Find default flow for this bot
             default_flow = Flow.get_default_flow(db, bot.id)
             if not default_flow:
+                # No flow configured - send default message
                 return {
                     "method": "sendMessage",
                     "chat_id": chat_id,
-                    "text": f"👋 Hello! I'm {bot.first_name}. I'm still being configured with conversation flows."
+                    "text": f"Hello! I'm {bot.first_name}. I'm still being configured with conversation flows."
                 }
-
-            print(f"Executing flow: {default_flow.name}")
 
             # Create execution context
             session_id = f"tg_{chat_id}_{user_id}"
+            # Load session state
+            flow_session = FlowSession.get_by_session(db, str(user_id), bot.id, session_id)
+            
+            # Reset session if user sends /start or other restart commands
+            should_reset = text.lower().strip() in ['/start', '/restart', '/reset']
+            if should_reset:
+                current_node_id = None
+                variables = {
+                    "chat_id": chat_id,
+                    "username": message.from_user.username,
+                    "first_name": message.from_user.first_name
+                }
+            else:
+                current_node_id = flow_session.current_node_id if flow_session else None
+                variables = flow_session.variables if flow_session and flow_session.variables else {
+                    "chat_id": chat_id,
+                    "username": message.from_user.username,
+                    "first_name": message.from_user.first_name
+                }
+            
             context = FlowExecutionContext(
                 user_id=str(user_id),
                 session_id=session_id,
-                variables={
-                    "chat_id": chat_id,
-                    "username": message["from"].get("username"),
-                    "first_name": message["from"].get("first_name"),
-                    "last_name": message["from"].get("last_name"),
-                    "language_code": message["from"].get("language_code")
-                }
+                current_node_id=current_node_id,
+                variables=variables
             )
 
             # Execute the flow
@@ -325,136 +269,79 @@ class TelegramService:
             try:
                 result = await engine.execute_flow(default_flow.id, text, context)
 
-                if result.success and result.response_message:
-                    response = {
-                        "method": "sendMessage",
-                        "chat_id": chat_id,
-                        "text": result.response_message
-                    }
-
-                    # Add quick replies if available
-                    if result.quick_replies:
-                        keyboard = [[{"text": reply}] for reply in result.quick_replies]
-                        response["reply_markup"] = {
-                            "keyboard": keyboard,
-                            "resize_keyboard": True,
-                            "one_time_keyboard": True
+                if result.success:
+                    # Save session state
+                    FlowSession.create_or_update(
+                        db,
+                        str(user_id),
+                        bot.id,
+                        session_id,
+                        context.current_node_id,
+                        context.variables
+                    )
+                    if result.response_message:
+                        response = {
+                            "method": "sendMessage",
+                            "chat_id": chat_id,
+                            "text": result.response_message
                         }
 
-                    print(f"Sending response: {result.response_message}")
-                    return response
+                        # Add quick replies if available
+                        if result.quick_replies:
+                            keyboard = [[{"text": reply}] for reply in result.quick_replies]
+                            response["reply_markup"] = {
+                                "keyboard": keyboard,
+                                "resize_keyboard": True,
+                                "one_time_keyboard": True
+                            }
+
+                        return response
+                    else:
+                        # Flow executed successfully but no response message - this shouldn't happen
+                        return {
+                            "method": "sendMessage",
+                            "chat_id": chat_id,
+                            "text": "I'm having trouble processing your request. Please try again."
+                        }
                 else:
-                    error_msg = result.error_message or "I didn't understand that. Could you try again?"
+                    error_msg = f"Flow execution failed: {result.error_message}"
                     return {
                         "method": "sendMessage",
                         "chat_id": chat_id,
-                        "text": f"🤔 {error_msg}"
+                        "text": "I didn't understand that. Could you try again?"
                     }
 
             finally:
                 await engine.close()
 
         except Exception as e:
-            print(f"Error processing Telegram update: {e}")
-            import traceback
-            traceback.print_exc()
+            return {"ok": False}
 
-            # Return a generic error message to the user
-            return {
-                "method": "sendMessage",
-                "chat_id": update.get("message", {}).get("chat", {}).get("id"),
-                "text": "⚠️ Sorry, I encountered an error. Please try again later."
-            }
 
-    @classmethod
-    async def test_flow_execution(
-            cls,
-            bot_token: str,
-            test_message: str,
-            db: Session
-    ) -> Dict[str, Any]:
-        """
-        Test flow execution without going through Telegram.
-
-        Args:
-            bot_token: Bot token
-            test_message: Test message to send
-            db: Database session
-
-        Returns:
-            Dict: Test result with bot response
-        """
-        try:
-            # Find the bot
-            bot = TelegramBot.get_by_token(db, bot_token)
-            if not bot:
-                return {"error": "Bot not found"}
-
-            # Find default flow
-            default_flow = Flow.get_default_flow(db, bot.id)
-            if not default_flow:
-                return {"error": "No default flow configured for this bot"}
-
-            # Create test context
-            from datetime import datetime
-            context = FlowExecutionContext(
-                user_id="test_user",
-                session_id=f"test_{int(datetime.now().timestamp())}",
-                variables={"test_mode": True}
-            )
-
-            # Execute flow
-            engine = FlowEngine(db)
-            try:
-                result = await engine.execute_flow(default_flow.id, test_message, context)
-                return {
-                    "success": result.success,
-                    "input_message": test_message,
-                    "bot_response": result.response_message,
-                    "quick_replies": result.quick_replies,
-                    "variables_updated": result.variables_updated,
-                    "actions_performed": result.actions_performed,
-                    "next_node": result.next_node_id,
-                    "error": result.error_message
-                }
-            finally:
-                await engine.close()
-
-        except Exception as e:
-            print(f"Error testing flow: {e}")
-            return {"error": str(e)}
 
     @classmethod
     async def setup_bot_automatically(cls, bot_token: str, bot_id: int) -> Dict[str, Any]:
         """
-        Automatically set up webhook for a bot when it's created.
-        This is called when a user adds a bot token.
+        Automatically setup a bot with webhook and basic configuration.
         """
-        from app.core.config import settings
-
         try:
-            # Construct the webhook URL automatically
-            webhook_url = f"{settings.WEBHOOK_BASE_URL}/api/v1/telegram/webhook/{bot_token}"
-
-            print(f"Setting up automatic webhook: {webhook_url}")
-
-            # Set the webhook with Telegram
-            success = await cls.set_webhook(bot_token, webhook_url)
-
-            if success:
-                return {
-                    "success": True,
-                    "webhook_url": webhook_url,
-                    "message": "Bot configured successfully! Ready to receive messages."
-                }
-            else:
-                return {
-                    "success": False,
-                    "error": "Failed to configure webhook with Telegram"
-                }
-
+            # Get bot info
+            bot_info = await cls.get_bot_info(bot_token)
+            
+            # Set webhook (assuming the webhook URL is configured in settings)
+            from app.core.config import settings
+            webhook_url = f"{settings.BASE_URL}/api/v1/telegram/webhook/{bot_token}"
+            
+            webhook_success = await cls.set_webhook(bot_token, webhook_url)
+            
+            return {
+                "success": True,
+                "bot_info": bot_info,
+                "webhook_set": webhook_success,
+                "webhook_url": webhook_url
+            }
+            
         except Exception as e:
-            print(f"Error in automatic setup: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -463,26 +350,28 @@ class TelegramService:
     @classmethod
     async def verify_webhook_setup(cls, bot_token: str) -> Dict[str, Any]:
         """
-        Verify that webhook is properly configured.
+        Verify that the webhook is properly configured for a bot, returning legacy keys for compatibility.
         """
         try:
-            webhook_info = await cls.get_webhook_info(bot_token)
             from app.core.config import settings
-
-            expected_url = f"{settings.WEBHOOK_BASE_URL}/api/v1/telegram/webhook/{bot_token}"
+            webhook_info = await cls.get_webhook_info(bot_token)
+            expected_url = f"{settings.BASE_URL}/api/v1/telegram/webhook/{bot_token}"
             current_url = webhook_info.get("url", "")
-
+            is_configured = bool(current_url)
+            is_correct = current_url == expected_url
             return {
-                "is_configured": bool(current_url),
-                "is_correct": current_url == expected_url,
+                "is_configured": is_configured,
+                "is_correct": is_correct,
                 "current_url": current_url,
                 "expected_url": expected_url,
                 "webhook_info": webhook_info
             }
-
         except Exception as e:
             return {
                 "is_configured": False,
                 "is_correct": False,
+                "current_url": None,
+                "expected_url": None,
+                "webhook_info": {},
                 "error": str(e)
             }

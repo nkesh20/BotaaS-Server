@@ -371,52 +371,7 @@ async def get_webhook_info(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{bot_id}/test-flow")
-async def test_bot_flow(
-        bot_id: int,
-        test_message: str = "Hello",
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
-):
-    """
-    Test the default flow for a bot without going through Telegram.
-    """
-    try:
-        bot = TelegramBot.get_by_id(db, bot_id)
-        if not bot:
-            raise HTTPException(status_code=404, detail="Bot not found")
 
-        # Find default flow
-        default_flow = Flow.get_default_flow(db, bot_id)
-        if not default_flow:
-            return {"error": "No default flow configured for this bot"}
-
-        # Create test context
-        context = FlowExecutionContext(
-            user_id="test_user",
-            session_id=f"test_{int(datetime.now().timestamp())}",
-            variables={"test_mode": True}
-        )
-
-        # Execute flow
-        engine = FlowEngine(db)
-        try:
-            result = await engine.execute_flow(default_flow.id, test_message, context)
-            return {
-                "success": result.success,
-                "input_message": test_message,
-                "bot_response": result.response_message,
-                "quick_replies": result.quick_replies,
-                "variables_updated": result.variables_updated,
-                "actions_performed": result.actions_performed,
-                "next_node": result.next_node_id,
-                "error": result.error_message
-            }
-        finally:
-            await engine.close()
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{bot_id}/status", response_model=Dict[str, Any])
@@ -428,7 +383,6 @@ async def get_bot_status(
     """
     Get comprehensive bot status including webhook verification.
     """
-    print("hiii")
     try:
         # Get bot from database
         bot = TelegramBot.get_by_id(db, bot_id)
@@ -438,13 +392,9 @@ async def get_bot_status(
         # Verify webhook status
         webhook_status = await TelegramService.verify_webhook_setup(bot.token)
 
-        print("error 1")
-
         # Get default flow info
         default_flow = Flow.get_default_flow(db, bot_id)
-        print("error 2")
         all_flows = Flow.get_by_bot_id(db, bot_id)
-        print("error 3")
         return {
             "bot": {
                 "id": bot.id,
