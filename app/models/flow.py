@@ -126,3 +126,43 @@ class Flow(Base):
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
+
+
+class FlowSession(Base):
+    __tablename__ = "flow_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True, nullable=False)
+    bot_id = Column(Integer, index=True, nullable=False)
+    session_id = Column(String, index=True, nullable=False)
+    current_node_id = Column(String, nullable=True)
+    variables = Column(JSON, nullable=True, default=dict)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    @classmethod
+    def get_by_session(cls, db: Session, user_id: str, bot_id: int, session_id: str):
+        return db.query(cls).filter(
+            cls.user_id == user_id,
+            cls.bot_id == bot_id,
+            cls.session_id == session_id
+        ).first()
+
+    @classmethod
+    def create_or_update(cls, db: Session, user_id: str, bot_id: int, session_id: str, current_node_id: str, variables: dict):
+        session = cls.get_by_session(db, user_id, bot_id, session_id)
+        if session:
+            session.current_node_id = current_node_id
+            session.variables = variables
+            session.updated_at = func.now()
+        else:
+            session = cls(
+                user_id=user_id,
+                bot_id=bot_id,
+                session_id=session_id,
+                current_node_id=current_node_id,
+                variables=variables
+            )
+            db.add(session)
+        db.commit()
+        db.refresh(session)
+        return session

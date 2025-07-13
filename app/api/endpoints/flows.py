@@ -47,70 +47,9 @@ def get_bot_flows(
                     "label": "Welcome Message",
                     "data": {
                         "type": "message",
-                        "content": "Hi! What can we help with?",
-                        "quick_replies": ["Services", "Support", "About"]
+                        "content": "Hello! Welcome to our bot. How can I help you today?"
                     },
                     "position": {"x": 300, "y": 100}
-                },
-                {
-                    "id": "services_response",
-                    "label": "Services Response",
-                    "data": {
-                        "type": "message",
-                        "content": "Here are our services:\n\n🔧 Windows Installation\n🐧 Linux Installation\n🛠️ System Maintenance\n📱 Mobile Support\n\nWhich service do you need?",
-                        "quick_replies": ["Windows Installation", "Linux Installation", "System Maintenance", "Mobile Support", "Back to Menu"]
-                    },
-                    "position": {"x": 500, "y": 50}
-                },
-                {
-                    "id": "support_response",
-                    "label": "Support Response",
-                    "data": {
-                        "type": "message",
-                        "content": "Need help? We're here for you!\n\n📞 Call us: +1-555-0123\n📧 Email: support@botaas.com\n💬 Live chat available 24/7\n\nHow can we assist you?",
-                        "quick_replies": ["Call Support", "Email Support", "Live Chat", "Back to Menu"]
-                    },
-                    "position": {"x": 500, "y": 150}
-                },
-                {
-                    "id": "about_response",
-                    "label": "About Response",
-                    "data": {
-                        "type": "message",
-                        "content": "About BotaaS:\n\n🚀 We provide comprehensive IT services\n💻 Specializing in system installations\n🔧 Expert technical support\n🌍 Serving clients worldwide\n\nFounded in 2024, we've helped thousands of clients with their IT needs.",
-                        "quick_replies": ["Our Team", "Contact Us", "Back to Menu"]
-                    },
-                    "position": {"x": 500, "y": 250}
-                },
-                {
-                    "id": "check_input",
-                    "label": "Check User Input",
-                    "data": {
-                        "type": "condition",
-                        "condition_type": "contains",
-                        "condition_value": "services"
-                    },
-                    "position": {"x": 300, "y": 200}
-                },
-                {
-                    "id": "check_support",
-                    "label": "Check Support Input",
-                    "data": {
-                        "type": "condition",
-                        "condition_type": "contains",
-                        "condition_value": "support"
-                    },
-                    "position": {"x": 300, "y": 300}
-                },
-                {
-                    "id": "check_about",
-                    "label": "Check About Input",
-                    "data": {
-                        "type": "condition",
-                        "condition_type": "contains",
-                        "condition_value": "about"
-                    },
-                    "position": {"x": 300, "y": 400}
                 }
             ],
             "edges": [
@@ -119,48 +58,6 @@ def get_bot_flows(
                     "source": "start",
                     "target": "welcome_message",
                     "label": "Next"
-                },
-                {
-                    "id": "welcome_to_check",
-                    "source": "welcome_message",
-                    "target": "check_input",
-                    "label": "User Input"
-                },
-                {
-                    "id": "check_to_services",
-                    "source": "check_input",
-                    "target": "services_response",
-                    "label": "Services"
-                },
-                {
-                    "id": "check_to_support",
-                    "source": "check_input",
-                    "target": "check_support",
-                    "label": "Not Services"
-                },
-                {
-                    "id": "support_check_to_support",
-                    "source": "check_support",
-                    "target": "support_response",
-                    "label": "Support"
-                },
-                {
-                    "id": "support_check_to_about",
-                    "source": "check_support",
-                    "target": "check_about",
-                    "label": "Not Support"
-                },
-                {
-                    "id": "about_check_to_about",
-                    "source": "check_about",
-                    "target": "about_response",
-                    "label": "About"
-                },
-                {
-                    "id": "about_check_to_default",
-                    "source": "check_about",
-                    "target": "welcome_message",
-                    "label": "Default"
                 }
             ],
             "triggers": [],
@@ -402,45 +299,6 @@ async def webhook_handler(
             "response": result.response_message,
             "quick_replies": result.quick_replies,
             "session_id": session_id
-        }
-    finally:
-        await engine.close()
-
-
-@router.post("/{bot_id}/test-flow")
-async def test_flow_handler(
-        bot_id: int,
-        test_message: str,
-        db: Session = Depends(get_db)
-):
-    """
-    Test a bot's flow with a message (for debugging).
-    """
-    # Find default flow for the bot
-    default_flow = Flow.get_default_flow(db, bot_id)
-    if not default_flow:
-        raise HTTPException(
-            status_code=404,
-            detail="No default flow found for bot"
-        )
-
-    # Execute flow
-    session_id = f"test_session_{int(datetime.now().timestamp())}"
-    context = FlowExecutionContext(
-        user_id="test_user",
-        session_id=session_id,
-        variables={}
-    )
-
-    engine = FlowEngine(db)
-    try:
-        result = await engine.execute_flow(default_flow.id, test_message, context)
-        return {
-            "success": result.success,
-            "response": result.response_message,
-            "quick_replies": result.quick_replies,
-            "session_id": session_id,
-            "error": result.error_message
         }
     finally:
         await engine.close()

@@ -54,29 +54,7 @@ async def health_check():
     return {"status": "healthy"}
 
 
-@app.post("/api/test/users/", response_model=UserSchema, tags=["test"])
-def create_test_user(db: Session = Depends(get_db)):
-    """
-    Create a test user for development purposes.
-    """
-    # Check if test user already exists
-    existing_user = User.get_by_telegram_id(db, "123456789")
-    if existing_user:
-        return existing_user
 
-    # Create test user data
-    user_data = UserCreate(
-        username="test_user1",
-        email="test2@example.com",
-        telegram_id="123456789",
-        telegram_username="test_username",
-        first_name="Test",
-        last_name="User",
-        is_active=True
-    )
-
-    # Add user to database
-    return User.create(db, user_data)
 
 
 @app.get("/api/users/", response_model=List[UserSchema], tags=["users"])
