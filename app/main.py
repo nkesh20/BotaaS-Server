@@ -5,7 +5,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from app.api.endpoints import auth, bots
+from app.api.endpoints import auth, bots, flows, webhooks
 from app.core.config import settings
 from app.db.session import create_tables, get_db
 from app.models.user import User
@@ -40,6 +40,8 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(bots.router, prefix="/api/v1", tags=["bots"])
+app.include_router(flows.router, prefix="/api/v1", tags=["flows"])
+app.include_router(webhooks.router, prefix="/api/v1", tags=["webhooks"])
 
 
 @app.get("/")
@@ -52,29 +54,7 @@ async def health_check():
     return {"status": "healthy"}
 
 
-@app.post("/api/test/users/", response_model=UserSchema, tags=["test"])
-def create_test_user(db: Session = Depends(get_db)):
-    """
-    Create a test user for development purposes.
-    """
-    # Check if test user already exists
-    existing_user = User.get_by_telegram_id(db, "123456789")
-    if existing_user:
-        return existing_user
 
-    # Create test user data
-    user_data = UserCreate(
-        username="test_user1",
-        email="test2@example.com",
-        telegram_id="123456789",
-        telegram_username="test_username",
-        first_name="Test",
-        last_name="User",
-        is_active=True
-    )
-
-    # Add user to database
-    return User.create(db, user_data)
 
 
 @app.get("/api/users/", response_model=List[UserSchema], tags=["users"])

@@ -10,7 +10,7 @@ load_dotenv()
 class Settings(BaseSettings):
     API_PREFIX: str = "/api/v1"
     PROJECT_NAME: str = "BotaaS"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = ["http://localhost:4200"]
@@ -25,6 +25,8 @@ class Settings(BaseSettings):
 
     # Database postgres
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost/botaas"
+    WEBHOOK_BASE_URL: str = "https://81970232fc66.ngrok-free.app"
+    BASE_URL: str = "https://81970232fc66.ngrok-free.app"  # For webhook setup
 
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")
