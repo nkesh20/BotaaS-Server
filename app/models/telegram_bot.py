@@ -18,9 +18,12 @@ class TelegramBot(Base):
     first_name = Column(String, nullable=False)  # Bot display name
     token = Column(String, nullable=False)
 
-    # Optional bot details
+    # Editable bot details
     description = Column(Text, nullable=True)
     short_description = Column(Text, nullable=True)
+    about = Column(Text, nullable=True)  # Bot about text
+    bot_picture_url = Column(String, nullable=True)  # Bot profile picture URL
+    description_picture_url = Column(String, nullable=True)  # Description picture URL
 
     # Bot settings
     is_active = Column(Boolean, default=True)

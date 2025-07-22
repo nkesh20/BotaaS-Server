@@ -8,6 +8,9 @@ class TelegramBotBase(BaseModel):
     first_name: str
     description: Optional[str] = None
     short_description: Optional[str] = None
+    about: Optional[str] = None
+    bot_picture_url: Optional[str] = None
+    description_picture_url: Optional[str] = None
     is_active: bool = True
     can_join_groups: bool = True
     can_read_all_group_messages: bool = False
@@ -27,9 +30,13 @@ class TelegramBotCreate(BaseModel):
         return v.strip()
 
 
-class TelegramBotUpdate(TelegramBotBase):
-    username: Optional[str] = None
+class TelegramBotUpdate(BaseModel):
     first_name: Optional[str] = None
+    description: Optional[str] = None
+    short_description: Optional[str] = None
+    about: Optional[str] = None
+    bot_picture_url: Optional[str] = None
+    description_picture_url: Optional[str] = None
     is_active: Optional[bool] = None
     can_join_groups: Optional[bool] = None
     can_read_all_group_messages: Optional[bool] = None
