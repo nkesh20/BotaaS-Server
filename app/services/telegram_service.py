@@ -225,6 +225,9 @@ class TelegramService:
             if not bot:
                 return {"ok": False}
 
+            if not bot.is_active:
+                return {"ok": True}
+
             # Find default flow for this bot
             default_flow = Flow.get_default_flow(db, bot.id)
             if not default_flow:
