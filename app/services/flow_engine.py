@@ -243,7 +243,7 @@ class FlowEngine:
             )
         else:
             # No match: stay on the same node and notify the user
-            notify_msg = "Sorry, I didn't understand your response. Please try again."
+            notify_msg = "Sorry, I didn't understand your message. Please try again."
             return FlowExecutionResult(
                 success=True,
                 next_node_id=node["id"],
