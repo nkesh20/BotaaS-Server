@@ -8,7 +8,6 @@ class TelegramBotBase(BaseModel):
     first_name: str
     description: Optional[str] = None
     short_description: Optional[str] = None
-    about: Optional[str] = None
     bot_picture_url: Optional[str] = None
     description_picture_url: Optional[str] = None
     is_active: bool = True
@@ -34,7 +33,6 @@ class TelegramBotUpdate(BaseModel):
     first_name: Optional[str] = None
     description: Optional[str] = None
     short_description: Optional[str] = None
-    about: Optional[str] = None
     bot_picture_url: Optional[str] = None
     description_picture_url: Optional[str] = None
     is_active: Optional[bool] = None
