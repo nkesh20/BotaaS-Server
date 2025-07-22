@@ -6,6 +6,8 @@ from telegram.ext import Application
 from telegram.error import TelegramError, InvalidToken
 
 from app.models.telegram_bot import TelegramBot
+from app.models.telegram_chat import TelegramChat
+from app.models.chat_user_message_count import ChatUserMessageCount
 from app.models.flow import Flow, FlowSession
 from app.services.flow_engine import FlowEngine
 from app.schemas.flow import FlowExecutionContext
@@ -219,6 +221,34 @@ class TelegramService:
             user_id = message.from_user.id
             chat_id = message.chat.id
             text = message.text or ""
+
+            # Update or create TelegramChat record
+            chat_data = {
+                "telegram_id": chat_id,
+                "type": message.chat.type,
+                "title": message.chat.title
+            }
+            existing_chat = TelegramChat.get_by_id(db, chat_id)
+            if not existing_chat:
+                TelegramChat.create(db, chat_data)
+            else:
+                # Update chat info if it has changed
+                TelegramChat.update(db, chat_id, chat_data)
+
+            # Update message count for this user in this chat
+            message_count_record = ChatUserMessageCount.get_by_id(db, chat_id, user_id)
+            if message_count_record:
+                # Increment message count
+                ChatUserMessageCount.update(db, chat_id, user_id, {
+                    "message_count": message_count_record.message_count + 1
+                })
+            else:
+                # Create new record with count of 1
+                ChatUserMessageCount.create(db, {
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "message_count": 1
+                })
 
             # Find the bot by token
             bot = TelegramBot.get_by_token(db, bot_token)
