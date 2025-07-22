@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, BigInteger
 from datetime import datetime
 from sqlalchemy.orm import Session
 from app.models.base import Base
@@ -7,7 +7,7 @@ class TelegramChat(Base):
     __tablename__ = "telegram_chats"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_id = Column(Integer, unique=True, index=True, nullable=False)
+    telegram_id = Column(BigInteger, unique=True, index=True, nullable=False)
     type = Column(String, nullable=False)  # e.g., 'private', 'group', 'supergroup', 'channel'
     title = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
