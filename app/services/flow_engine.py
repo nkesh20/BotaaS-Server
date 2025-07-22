@@ -49,14 +49,11 @@ class FlowEngine:
             max_iterations = 10  # Prevent infinite loops
             
             for iteration in range(max_iterations):
-                # Check if this is the first visit to this node
                 is_first_visit = context.current_node_id != current_node["id"]
 
                 node_type = current_node.get("type") or current_node.get("data", {}).get("type")
                 quick_replies = current_node.get("data", {}).get("quick_replies", [])
 
-                # For message nodes with quick replies, we need special handling
-                # If this is the first visit to a message node with quick replies, show the message and wait for user input
                 is_message_with_quick_replies = (node_type == "message" and quick_replies)
                 if is_message_with_quick_replies and is_first_visit:
                     result = await self._execute_message_node(flow, current_node, "", context)
@@ -71,12 +68,27 @@ class FlowEngine:
                     })
                     if result.response_message:
                         final_result = result
+                        context.current_node_id = current_node["id"]
+                        return final_result if final_result else result
                     context.current_node_id = current_node["id"]
-                    # Stop execution here and wait for user input
-                    return final_result if final_result else result
+                    # If no response, continue to next node if possible
+                    if result.next_node_id and result.next_node_id != current_node["id"]:
+                        next_node = next((node for node in flow.nodes if node["id"] == result.next_node_id), None)
+                        if next_node:
+                            current_node = next_node
+                            context.current_node_id = next_node["id"]
+                            # If the next node is a message node, clear user_message
+                            next_node_type = next_node.get("type") or next_node.get("data", {}).get("type")
+                            if next_node_type == "message":
+                                user_message = ""
+                            continue
+                    break
 
-                # Otherwise, execute the current node as normal
-                result = await self._execute_node(flow, current_node, user_message, context)
+                # Special handling for start node: ignore user_message for transition
+                if node_type == "start":
+                    result = await self._execute_start_node(flow, current_node, context)
+                else:
+                    result = await self._execute_node(flow, current_node, user_message, context)
 
                 if result.success and result.variables_updated:
                     context.variables.update(result.variables_updated)
@@ -89,19 +101,16 @@ class FlowEngine:
                 })
                 if result.response_message:
                     final_result = result
+                    context.current_node_id = current_node["id"]
+                    break
 
-                # Check if we should continue to next node
+                # If no response, but there is a next node, continue
                 if result.next_node_id and result.next_node_id != current_node["id"]:
-                    next_node = None
-                    for node in flow.nodes:
-                        if node["id"] == result.next_node_id:
-                            next_node = node
-                            break
+                    next_node = next((node for node in flow.nodes if node["id"] == result.next_node_id), None)
                     if next_node:
-                        # Clear user_message when moving to message nodes with quick replies
+                        # Clear user_message when moving to message nodes (not just with quick replies)
                         next_node_type = next_node.get("type") or next_node.get("data", {}).get("type")
-                        next_quick_replies = next_node.get("data", {}).get("quick_replies", [])
-                        if next_node_type == "message" and next_quick_replies:
+                        if next_node_type == "message":
                             user_message = ""
                         current_node = next_node
                         context.current_node_id = next_node["id"]
@@ -212,39 +221,34 @@ class FlowEngine:
         node_data = node.get("data", {})
         message = self._interpolate_variables(node_data.get("content", ""), context.variables)
         quick_replies = node_data.get("quick_replies", [])
-
-        # Add delay if specified
         delay = node_data.get("delay", 0)
         if delay > 0:
-            await asyncio.sleep(delay / 1000)  # Convert ms to seconds
+            await asyncio.sleep(delay / 1000)
 
-        # If user_message is empty, this is a first visit - show message and quick replies
         if not user_message:
             return FlowExecutionResult(
                 success=True,
-                next_node_id=node["id"],  # Stay on this node
+                next_node_id=node["id"],
                 response_message=message,
                 quick_replies=quick_replies if quick_replies else None
             )
 
-        # Otherwise, try to route to the next node based on user input
         next_node_id = self._find_next_node(flow, node["id"], user_message)
-
-        # If we found a next node, route to it
         if next_node_id:
             return FlowExecutionResult(
                 success=True,
                 next_node_id=next_node_id,
-                response_message=None,  # Don't send a message from this node when routing
-                quick_replies=None  # Don't show quick replies when routing
+                response_message=None,
+                quick_replies=None
             )
         else:
-            # No next node found - this is the end of the flow, return the current message
+            # No match: stay on the same node and notify the user
+            notify_msg = "Sorry, I didn't understand your message. Please try again."
             return FlowExecutionResult(
                 success=True,
-                next_node_id=None,
-                response_message=message,  # Return the current message as the final response
-                quick_replies=None
+                next_node_id=node["id"],
+                response_message=notify_msg,
+                quick_replies=quick_replies if quick_replies else None
             )
 
     async def _execute_condition_node(
@@ -504,72 +508,37 @@ class FlowEngine:
         )
 
     def _find_next_node(self, flow: Flow, current_node_id: str, user_message: str = None) -> Optional[str]:
-        """Find the next node in the flow based on user message or quick reply."""
-        # Get all edges from current node
+        """Find the next node in the flow based on user message or quick reply, with strict matching and similarity threshold."""
         edges = [edge for edge in flow.edges if edge["source"] == current_node_id]
-        
         if not edges:
             return None
-            
-        # If there's only one edge, use it
-        if len(edges) == 1:
-            edge = edges[0]
-            return edge["target"]
-            
-        # If there are multiple edges, try to match based on user message
+
         if user_message:
             user_message_lower = user_message.lower().strip()
-            
-            # First, try exact matching (case-insensitive)
+            # 1. Exact match (case-insensitive)
             for edge in edges:
                 edge_label = edge.get("label", "").lower().strip()
                 if edge_label and edge_label == user_message_lower:
                     return edge["target"]
-            
-            # If no exact match, try partial matching (edge label contains user message)
-            for edge in edges:
-                edge_label = edge.get("label", "").lower().strip()
-                if edge_label and user_message_lower in edge_label:
-                    return edge["target"]
-                    
-            # If no partial match, try reverse (user message contains edge label)
-            for edge in edges:
-                edge_label = edge.get("label", "").lower().strip()
-                if edge_label and edge_label in user_message_lower:
-                    return edge["target"]
-            
-            # Try fuzzy matching for quick replies (check if any edge label is similar to user message)
+
+            # 2. Similarity match (above threshold)
             best_match = None
-            best_score = 0
-            
+            best_score = 0.0
             for edge in edges:
                 edge_label = edge.get("label", "").lower().strip()
                 if edge_label:
-                    # Calculate similarity score
                     score = self._calculate_similarity(user_message_lower, edge_label)
-                    if score > best_score and score > 0.6:  # Threshold for similarity
+                    if score > best_score:
                         best_score = score
                         best_match = edge
-            
-            if best_match:
+            if best_match and best_score >= 0.7:
                 return best_match["target"]
-        
-        # If no match found and we have multiple edges, look for a default edge
-        # Check for edges with labels like "default", "next", "continue", etc.
-        default_keywords = ["default", "next", "continue", "proceed", "ok", "yes"]
-        for edge in edges:
-            edge_label = edge.get("label", "").lower().strip()
-            if edge_label in default_keywords:
-                return edge["target"]
-        
-        # If still no match, check if there's an edge without a label (fallback)
-        unlabeled_edges = [edge for edge in edges if not edge.get("label", "").strip()]
-        if unlabeled_edges:
-            return unlabeled_edges[0]["target"]
-        
-        # Last resort: use first edge
-        default_edge = edges[0]
-        return default_edge["target"]
+
+            # 3. No match: return None to indicate staying on the same node
+            return None
+
+        # For start nodes or non-interactive transitions, always return the first outgoing edge's target (if any)
+        return edges[0]["target"] if edges else None
 
     def _find_conditional_next_node(
             self,

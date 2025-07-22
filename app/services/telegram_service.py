@@ -271,6 +271,7 @@ class TelegramService:
             if not bot:
                 return {"ok": False}
 
+            # If bot is not active, don't execute flow
             if not bot.is_active:
                 return {"ok": True}
 
