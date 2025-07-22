@@ -235,18 +235,34 @@ class TelegramService:
                 # Update chat info if it has changed
                 TelegramChat.update(db, chat_id, chat_data)
 
+            # Create or get user record first
+            from app.models.user import User
+            existing_user = User.get_by_telegram_id(db, str(user_id))
+            if not existing_user:
+                # Create a basic user record for this Telegram user
+                from app.schemas.user import UserCreate
+                user_create = UserCreate(
+                    username=message.from_user.username or f"user_{user_id}",
+                    telegram_id=str(user_id),
+                    telegram_username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name,
+                    is_active=True
+                )
+                existing_user = User.create(db, user_create)
+
             # Update message count for this user in this chat
-            message_count_record = ChatUserMessageCount.get_by_id(db, chat_id, user_id)
+            message_count_record = ChatUserMessageCount.get_by_id(db, chat_id, existing_user.id)
             if message_count_record:
                 # Increment message count
-                ChatUserMessageCount.update(db, chat_id, user_id, {
+                ChatUserMessageCount.update(db, chat_id, existing_user.id, {
                     "message_count": message_count_record.message_count + 1
                 })
             else:
                 # Create new record with count of 1
                 ChatUserMessageCount.create(db, {
                     "chat_id": chat_id,
-                    "user_id": user_id,
+                    "user_id": existing_user.id,
                     "message_count": 1
                 })
 
@@ -345,6 +361,9 @@ class TelegramService:
                 await engine.close()
 
         except Exception as e:
+            print(f"Telegram webhook error: {e}")
+            import traceback
+            traceback.print_exc()
             return {"ok": False}
 
 

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, ForeignKey, UniqueConstraint, BigInteger
 from sqlalchemy.orm import relationship, Session
 from app.models.base import Base
 
@@ -9,8 +9,8 @@ class ChatUserMessageCount(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("telegram_chats.telegram_id"), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey("users.telegram_id"), nullable=False, index=True)
+    chat_id = Column(BigInteger, ForeignKey("telegram_chats.telegram_id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     message_count = Column(Integer, default=0, nullable=False)
 
     user = relationship("User")
