@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import httpx
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
@@ -19,6 +20,8 @@ from app.schemas.telegram_bot import (
 )
 from app.services.flow_engine import FlowEngine
 from app.services.telegram_service import TelegramService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/telegram-bots", tags=["telegram-bots"])
 
@@ -127,7 +130,7 @@ def get_bot(
 
 
 @router.put("/{bot_id}", response_model=TelegramBotResponse)
-def update_bot(
+async def update_bot(
         bot_id: int,
         bot_update: TelegramBotUpdate,
         db: Session = Depends(get_db),
@@ -152,6 +155,44 @@ def update_bot(
         )
 
     update_data = bot_update.dict(exclude_unset=True)
+    
+    # Update bot information on Telegram if relevant fields are being updated
+    telegram_api_base = f"https://api.telegram.org/bot{bot.token}"
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Update bot name if provided
+            if 'first_name' in update_data and update_data['first_name']:
+                response = await client.post(
+                    f"{telegram_api_base}/setMyName",
+                    json={"name": update_data['first_name']}
+                )
+                if response.status_code != 200:
+                    logger.warning(f"Failed to update bot name on Telegram: {response.text}")
+            
+            # Update bot description if provided
+            if 'description' in update_data:
+                response = await client.post(
+                    f"{telegram_api_base}/setMyDescription",
+                    json={"description": update_data['description'] or ""}
+                )
+                if response.status_code != 200:
+                    logger.warning(f"Failed to update bot description on Telegram: {response.text}")
+            
+            # Update bot short description if provided
+            if 'short_description' in update_data:
+                response = await client.post(
+                    f"{telegram_api_base}/setMyShortDescription",
+                    json={"short_description": update_data['short_description'] or ""}
+                )
+                if response.status_code != 200:
+                    logger.warning(f"Failed to update bot short description on Telegram: {response.text}")
+                
+    except Exception as e:
+        # Log the error but don't fail the update - Telegram API might have issues
+        logger.error(f"Error updating bot info on Telegram: {str(e)}")
+    
+    # Update in our database
     updated_bot = TelegramBot.update(db, bot_id, update_data)
 
     if not updated_bot:

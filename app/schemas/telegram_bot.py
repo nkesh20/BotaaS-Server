@@ -27,9 +27,10 @@ class TelegramBotCreate(BaseModel):
         return v.strip()
 
 
-class TelegramBotUpdate(TelegramBotBase):
-    username: Optional[str] = None
+class TelegramBotUpdate(BaseModel):
     first_name: Optional[str] = None
+    description: Optional[str] = None
+    short_description: Optional[str] = None
     is_active: Optional[bool] = None
     can_join_groups: Optional[bool] = None
     can_read_all_group_messages: Optional[bool] = None
