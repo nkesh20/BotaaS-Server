@@ -21,8 +21,6 @@ class TelegramBot(Base):
     # Editable bot details
     description = Column(Text, nullable=True)
     short_description = Column(Text, nullable=True)
-    bot_picture_url = Column(String, nullable=True)  # Bot profile picture URL
-    description_picture_url = Column(String, nullable=True)  # Description picture URL
 
     # Bot settings
     is_active = Column(Boolean, default=True)
