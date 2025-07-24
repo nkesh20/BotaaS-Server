@@ -119,6 +119,7 @@ class FlowExecutionResult(BaseModel):
     """Result of flow execution."""
     success: bool
     next_node_id: Optional[str] = None
+    output: Optional[str] = None
     response_message: Optional[str] = None
     quick_replies: Optional[List[str]] = None
     variables_updated: Dict[str, Any] = Field(default_factory=dict)
