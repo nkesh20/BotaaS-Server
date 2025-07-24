@@ -417,12 +417,11 @@ class FlowEngine:
             is_first_visit: bool = False
     ) -> FlowExecutionResult:
         """
-        Execute input node - wait for input on first visit, validate and assign result to input for edge selection.
+        Execute input node - wait for input on first visit, assign result to input for edge selection without validation.
         """
         node_data = node.get("data", {})
         input_type = node_data.get("input_type", "text")
         variable_name = node_data.get("variable_name")
-        validation_pattern = node_data.get("validation_pattern")
         prompt_message = node_data.get("prompt") or node_data.get("content") or "Please provide input."
 
         if not variable_name:
@@ -438,27 +437,15 @@ class FlowEngine:
                 response_message=prompt_message
             )
 
-        validation_error = self._validate_input(input, input_type, validation_pattern)
-        is_valid = validation_error is None
-
-        if not is_valid:
-            input_result = "false"
-        else:
-            input_result = "true"
-
-        # Assign the result to input and also to the variable if valid
-        variables_updated = {}
-        if is_valid:
-            converted_value = self._convert_input(input, input_type)
-            variables_updated[variable_name] = converted_value
-
-        next_node_id = self._find_next_node(flow, node["id"], input_result)
+        # No validation or conversion, just store the input as-is
+        variables_updated = {variable_name: input}
+        next_node_id = self._find_next_node(flow, node["id"], input=input)
         return FlowExecutionResult(
-            success=is_valid,
+            success=True,
             next_node_id=next_node_id,
-            response_message=None if is_valid else validation_error,
+            output=input,
+            response_message=None,
             variables_updated=variables_updated,
-            input=input_result
         )
 
     async def _execute_end_node(
@@ -484,6 +471,12 @@ class FlowEngine:
         edges = [edge for edge in flow.edges if edge["source"] == current_node_id]
         if not edges:
             return None
+
+        # If there is only one edge and its label is 'Next', 'Continue', or 'Default', follow it directly
+        if len(edges) == 1:
+            label = edges[0].get("label", "").strip().lower()
+            if label in ["next", "continue", "default"]:
+                return edges[0]["target"]
 
         if force_ignore_label:
             return edges[0]["target"]
@@ -550,21 +543,44 @@ class FlowEngine:
     def _evaluate_condition(self, input: str, condition_type: str, condition_value: str) -> bool:
         """
         Evaluate a condition against input.
+        Supported types: equals, contains, number, email, phone_number, date, regex
         """
-        input = input.lower().strip()
-        condition_value = condition_value.lower().strip()
+        input_str = input.strip()
+        condition_value_str = condition_value.strip()
 
         if condition_type == "equals":
-            return input == condition_value
+            return input_str.lower() == condition_value_str.lower()
         elif condition_type == "contains":
-            return condition_value in input
+            return condition_value_str.lower() in input_str.lower()
         elif condition_type == "regex":
             try:
-                return bool(re.search(condition_value, input, re.IGNORECASE))
+                return bool(re.search(condition_value_str, input_str, re.IGNORECASE))
             except re.error:
                 return False
-        elif condition_type == "intent":
-            return condition_value in input
+        elif condition_type == "number":
+            try:
+                input_num = float(input_str)
+                if condition_value_str:
+                    cond_num = float(condition_value_str)
+                    return input_num == cond_num
+                return True  # Just check if input is a number
+            except ValueError:
+                return False
+        elif condition_type == "email":
+            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}'
+            return bool(re.match(email_pattern, input_str))
+        elif condition_type == "phone_number":
+            phone_pattern = r'^\\+?[\\d\\s\\-\\(\\)]{10,}$'
+            return bool(re.match(phone_pattern, input_str))
+        elif condition_type == "date":
+            # Accepts YYYY-MM-DD, MM/DD/YYYY, MM-DD-YYYY
+            date_patterns = [
+                r'^\d{4}-\d{2}-\d{2}$',
+                r'^\d{2}/\d{2}/\d{4}$',
+                r'^\d{2}-\d{2}-\d{4}$'
+            ]
+            input_str = input_str.strip()
+            return any(re.fullmatch(pattern, input_str) for pattern in date_patterns)
         else:
             return False
 
