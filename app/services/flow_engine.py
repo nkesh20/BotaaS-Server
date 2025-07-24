@@ -202,8 +202,8 @@ class FlowEngine:
             node: Dict[str, Any],
             context: FlowExecutionContext
     ) -> FlowExecutionResult:
-        """Execute start node - simply move to next node."""
-        next_node_id = self._find_next_node(flow, node["id"])
+        """Execute start node - always move to the first outgoing edge, ignoring label and user_message."""
+        next_node_id = self._find_next_node(flow, node["id"], force_ignore_label=True)
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
@@ -507,11 +507,15 @@ class FlowEngine:
             response_message=self._interpolate_variables(message, context.variables)
         )
 
-    def _find_next_node(self, flow: Flow, current_node_id: str, user_message: str = None) -> Optional[str]:
-        """Find the next node in the flow based on user message or quick reply, with strict matching and similarity threshold."""
+    def _find_next_node(self, flow: Flow, current_node_id: str, user_message: str = None, force_ignore_label: bool = False) -> Optional[str]:
+        """Find the next node in the flow based on user message or quick reply, with strict matching and similarity threshold. If force_ignore_label is True, always use the first outgoing edge regardless of label/user_message."""
         edges = [edge for edge in flow.edges if edge["source"] == current_node_id]
         if not edges:
             return None
+
+        if force_ignore_label:
+            # Always use the first outgoing edge, ignore label and user_message
+            return edges[0]["target"]
 
         if user_message:
             user_message_lower = user_message.lower().strip()
@@ -537,7 +541,7 @@ class FlowEngine:
             # 3. No match: return None to indicate staying on the same node
             return None
 
-        # For start nodes or non-interactive transitions, always return the first outgoing edge's target (if any)
+        # For non-interactive transitions, always return the first outgoing edge's target (if any)
         return edges[0]["target"] if edges else None
 
     def _find_conditional_next_node(
