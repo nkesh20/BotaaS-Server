@@ -54,8 +54,8 @@ class FlowEngine:
                 node_type = current_node.get("type") or current_node.get("data", {}).get("type")
                 quick_replies = current_node.get("data", {}).get("quick_replies", [])
 
-                is_message_with_quick_replies = (node_type == "message" and quick_replies)
-                if is_message_with_quick_replies and is_first_visit:
+                # Generalized: For any message node, on first visit, send message and wait for input
+                if node_type == "message" and is_first_visit:
                     result = await self._execute_message_node(flow, current_node, "", context)
                     if result.success and result.variables_updated:
                         context.variables.update(result.variables_updated)
