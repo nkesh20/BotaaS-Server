@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from app.api.endpoints import auth, bots, flows, webhooks
+from app.api.endpoints import broadcast_router
 from app.core.config import settings
 from app.db.session import create_tables, get_db
 from app.models.user import User
@@ -42,6 +43,7 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(bots.router, prefix="/api/v1", tags=["bots"])
 app.include_router(flows.router, prefix="/api/v1", tags=["flows"])
 app.include_router(webhooks.router, prefix="/api/v1", tags=["webhooks"])
+app.include_router(broadcast_router, prefix="/api/v1", tags=["broadcast"])
 
 
 @app.get("/")

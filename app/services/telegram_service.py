@@ -244,7 +244,7 @@ class TelegramService:
                 user_create = UserCreate(
                     username=message.from_user.username or f"user_{user_id}",
                     telegram_id=str(user_id),
-                    telegram_username=message.from_user.username,
+                    telegram_username=message.from_user.username or "",
                     first_name=message.from_user.first_name,
                     last_name=message.from_user.last_name,
                     is_active=True

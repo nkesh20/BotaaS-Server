@@ -25,8 +25,8 @@ class Settings(BaseSettings):
 
     # Database postgres
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost/botaas"
-    WEBHOOK_BASE_URL: str = "https://9a339bf17aba.ngrok-free.app"
-    BASE_URL: str = "https://9a339bf17aba.ngrok-free.app"  # For webhook setup
+    WEBHOOK_BASE_URL: str = "https://d5224e16d1c6.ngrok-free.app"
+    BASE_URL: str = "https://d5224e16d1c6.ngrok-free.app"  # For webhook setup
 
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "development_secret_key")
