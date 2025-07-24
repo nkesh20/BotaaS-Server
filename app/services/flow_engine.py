@@ -44,71 +44,23 @@ class FlowEngine:
                     error_message="No valid starting node found"
                 )
 
-            # Execute nodes until we reach an end node or no more nodes
             final_result = None
             max_iterations = 10  # Prevent infinite loops
-            
             for iteration in range(max_iterations):
                 is_first_visit = context.current_node_id != current_node["id"]
-
-                node_type = current_node.get("type") or current_node.get("data", {}).get("type")
-                quick_replies = current_node.get("data", {}).get("quick_replies", [])
-
-                # Generalized: For any message node, on first visit, send message and wait for input
-                if node_type == "message" and is_first_visit:
-                    result = await self._execute_message_node(flow, current_node, "", context)
-                    if result.success and result.variables_updated:
-                        context.variables.update(result.variables_updated)
-                    context.history.append({
-                        "timestamp": datetime.now().isoformat(),
-                        "node_id": current_node["id"],
-                        "user_message": "",  # No user message on first visit
-                        "bot_response": result.response_message,
-                        "variables": result.variables_updated
-                    })
-                    if result.response_message:
-                        final_result = result
-                        context.current_node_id = current_node["id"]
-                        return final_result if final_result else result
-                    context.current_node_id = current_node["id"]
-                    # If no response, continue to next node if possible
-                    if result.next_node_id and result.next_node_id != current_node["id"]:
-                        next_node = next((node for node in flow.nodes if node["id"] == result.next_node_id), None)
-                        if next_node:
-                            current_node = next_node
-                            context.current_node_id = next_node["id"]
-                            # If the next node is a message node, clear user_message
-                            next_node_type = next_node.get("type") or next_node.get("data", {}).get("type")
-                            if next_node_type == "message":
-                                user_message = ""
-                            continue
-                    break
-
-                # Special handling for start node: ignore user_message for transition
-                if node_type == "start":
-                    result = await self._execute_start_node(flow, current_node, context)
-                else:
-                    result = await self._execute_node(flow, current_node, user_message, context)
-
-                if result.success and result.variables_updated:
-                    context.variables.update(result.variables_updated)
-                context.history.append({
-                    "timestamp": datetime.now().isoformat(),
-                    "node_id": current_node["id"],
-                    "user_message": user_message,
-                    "bot_response": result.response_message,
-                    "variables": result.variables_updated
-                })
-                if result.response_message:
+                result = await self._execute_node(flow, current_node, user_message, context, is_first_visit=is_first_visit)
+                self._update_context_and_history(context, current_node, result, user_message="" if is_first_visit and (current_node.get("type") == "message" or current_node.get("data", {}).get("type") == "message") else user_message)
+                if is_first_visit and (current_node.get("type") == "message" or current_node.get("data", {}).get("type") == "message") and result.response_message:
                     final_result = result
                     context.current_node_id = current_node["id"]
+                    return final_result if final_result else result
+                context.current_node_id = current_node["id"]
+                if result.response_message:
+                    final_result = result
                     break
-
-                # If no response, but there is a next node, continue
                 if result.next_node_id and result.next_node_id != current_node["id"]:
                     next_node = next((node for node in flow.nodes if node["id"] == result.next_node_id), None)
                     if next_node:
-                        # Clear user_message when moving to message nodes (not just with quick replies)
                         next_node_type = next_node.get("type") or next_node.get("data", {}).get("type")
                         if next_node_type == "message":
                             user_message = ""
@@ -118,10 +70,8 @@ class FlowEngine:
                     else:
                         break
                 else:
-                    context.current_node_id = current_node["id"]
                     break
 
-            # Return the final result with a response message, or the last result
             if final_result:
                 return final_result
             elif result:
@@ -140,6 +90,17 @@ class FlowEngine:
                 success=False,
                 error_message=f"Flow execution error: {str(e)}"
             )
+
+    def _update_context_and_history(self, context, current_node, result, user_message):
+        if result.success and result.variables_updated:
+            context.variables.update(result.variables_updated)
+        context.history.append({
+            "timestamp": datetime.now().isoformat(),
+            "node_id": current_node["id"],
+            "user_message": user_message,
+            "bot_response": result.response_message,
+            "variables": result.variables_updated
+        })
 
     def _find_current_node(self, flow: Flow, context: FlowExecutionContext) -> Optional[Dict[str, Any]]:
         """
@@ -167,7 +128,8 @@ class FlowEngine:
             flow: Flow,
             node: Dict[str, Any],
             user_message: str,
-            context: FlowExecutionContext
+            context: FlowExecutionContext,
+            is_first_visit: bool = False
     ) -> FlowExecutionResult:
         """
         Execute a specific node based on its type.
@@ -179,7 +141,7 @@ class FlowEngine:
         if node_type == "start":
             return await self._execute_start_node(flow, node, context)
         elif node_type == "message":
-            return await self._execute_message_node(flow, node, user_message, context)
+            return await self._execute_message_node(flow, node, user_message, context, is_first_visit=is_first_visit)
         elif node_type == "condition":
             return await self._execute_condition_node(flow, node, user_message, context)
         elif node_type == "action":
@@ -187,7 +149,7 @@ class FlowEngine:
         elif node_type == "webhook":
             return await self._execute_webhook_node(flow, node, user_message, context)
         elif node_type == "input":
-            return await self._execute_input_node(flow, node, user_message, context)
+            return await self._execute_input_node(flow, node, user_message, context, is_first_visit=is_first_visit)
         elif node_type == "end":
             return await self._execute_end_node(flow, node, context)
         else:
@@ -215,9 +177,10 @@ class FlowEngine:
             flow: Flow,
             node: Dict[str, Any],
             user_message: str,
-            context: FlowExecutionContext
+            context: FlowExecutionContext,
+            is_first_visit: bool = False
     ) -> FlowExecutionResult:
-        """Execute message node - send message to user."""
+        """Execute message node - send message to user. Handles both first visit and regular cases."""
         node_data = node.get("data", {})
         message = self._interpolate_variables(node_data.get("content", ""), context.variables)
         quick_replies = node_data.get("quick_replies", [])
@@ -225,6 +188,19 @@ class FlowEngine:
         if delay > 0:
             await asyncio.sleep(delay / 1000)
 
+        # If first visit, always show the message
+        if is_first_visit:
+            result = FlowExecutionResult(
+                success=True,
+                next_node_id=node["id"],
+                response_message=message,
+                quick_replies=quick_replies if quick_replies else None
+            )
+            if result.success and result.variables_updated:
+                context.variables.update(result.variables_updated)
+            return result
+
+        # Otherwise, handle user input as before
         if not user_message:
             return FlowExecutionResult(
                 success=True,
@@ -456,13 +432,16 @@ class FlowEngine:
             flow: Flow,
             node: Dict[str, Any],
             user_message: str,
-            context: FlowExecutionContext
+            context: FlowExecutionContext,
+            is_first_visit: bool = False
     ) -> FlowExecutionResult:
-        """Execute input node - validate and store user input."""
+        """Execute input node - wait for input on first visit, validate and store user input on subsequent visits."""
         node_data = node.get("data", {})
         input_type = node_data.get("input_type", "text")
         variable_name = node_data.get("variable_name")
         validation_pattern = node_data.get("validation_pattern")
+        prompt_message = node_data.get("prompt") or node_data.get("content") or "Please provide input."
+        validation_outcome_var = f"{variable_name}_valid" if variable_name else "input_valid"
 
         if not variable_name:
             return FlowExecutionResult(
@@ -470,24 +449,37 @@ class FlowEngine:
                 error_message="Variable name not specified for input node"
             )
 
-        # Validate input based on type
+        if is_first_visit:
+            # On first visit, just prompt for input, do not validate or assign
+            return FlowExecutionResult(
+                success=True,
+                next_node_id=node["id"],  # Stay on the same node
+                response_message=prompt_message,
+                variables_updated={validation_outcome_var: None}
+            )
+
+        # Not first visit: validate input
         validation_error = self._validate_input(user_message, input_type, validation_pattern)
-        if validation_error:
+        is_valid = validation_error is None
+        variables_updated = {validation_outcome_var: is_valid}
+
+        if not is_valid:
+            # Invalid input: do not assign, stay on node, return error message
             return FlowExecutionResult(
                 success=False,
                 error_message=validation_error,
-                next_node_id=node["id"]  # Stay on same node
+                next_node_id=node["id"],
+                variables_updated=variables_updated
             )
 
-        # Convert input based on type
+        # Valid input: assign to variable, move to next node
         converted_value = self._convert_input(user_message, input_type)
-
+        variables_updated[variable_name] = converted_value
         next_node_id = self._find_next_node(flow, node["id"])
-
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
-            variables_updated={variable_name: converted_value},
+            variables_updated=variables_updated,
             actions_performed=[f"Stored user input in variable {variable_name}"]
         )
 
