@@ -33,6 +33,27 @@ Modify .env file if needed
 poetry run python -m app.db.init_db
 ```
 
+### 5. Database migrations (Alembic)
+
+To apply the latest database migrations:
+
+```bash
+poetry run alembic upgrade head
+```
+
+To create a new migration after changing models:
+
+```bash
+poetry run alembic revision --autogenerate -m "your message here"
+```
+
+If you encounter import errors with Alembic, ensure your `alembic/env.py` adds the project root to `sys.path`:
+
+```python
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+```
+
 ## Running the server
 
 ### Development mode
