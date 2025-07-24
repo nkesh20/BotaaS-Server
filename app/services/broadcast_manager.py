@@ -6,6 +6,13 @@ from app.models.bot_user import BotUser
 from app.models.telegram_bot import TelegramBot
 from app.services.telegram_service import TelegramService
 
+def render_template(text: str, user) -> str:
+    return (
+        text.replace("{{first_name}}", user.first_name or "")
+            .replace("{{last_name}}", user.last_name or "")
+            .replace("{{telegram_username}}", user.telegram_username or "")
+    )
+
 class BroadcastManager:
     def __init__(self):
         self.queues = {}  # bot_id -> asyncio.Queue
@@ -42,9 +49,10 @@ class BroadcastManager:
             await asyncio.sleep(delay)
         queue = self.get_queue(bot_id)
         for bot_user in users:
+            personalized_text = render_template(text, bot_user.user)
             await queue.put({
                 "bot_token": bot.token,
                 "chat_id": int(bot_user.telegram_user_id),
-                "text": text,
+                "text": personalized_text,
                 "parse_mode": parse_mode
             }) 
