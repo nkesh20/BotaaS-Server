@@ -23,6 +23,7 @@ class User(Base):
 
     # Relationship with telegram bots
     telegram_bots = relationship("TelegramBot", back_populates="user", cascade="all, delete-orphan")
+    bot_users = relationship("BotUser", back_populates="user", cascade="all, delete-orphan")
 
     @classmethod
     def get_by_id(cls, db: Session, user_id: int):
