@@ -271,6 +271,10 @@ class TelegramService:
             if not bot:
                 return {"ok": False}
 
+            # Upsert BotUser association for this user and bot
+            from app.models.bot_user import BotUser
+            BotUser.get_or_create(db, bot_id=bot.id, user_id=existing_user.id, telegram_user_id=str(user_id))
+
             # If bot is not active, don't execute flow
             if not bot.is_active:
                 return {"ok": True}

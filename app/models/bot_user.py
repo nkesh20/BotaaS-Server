@@ -15,4 +15,20 @@ class BotUser(Base):
     can_receive_broadcasts = Column(Boolean, default=True)
 
     user = relationship("User")
-    bot = relationship("TelegramBot") 
+    bot = relationship("TelegramBot")
+
+    @classmethod
+    def get_or_create(cls, db, bot_id, user_id, telegram_user_id=None):
+        instance = db.query(cls).filter_by(bot_id=bot_id, user_id=user_id).first()
+        if instance:
+            return instance, False
+        instance = cls(
+            bot_id=bot_id,
+            user_id=user_id,
+            telegram_user_id=telegram_user_id,
+            can_receive_broadcasts=True
+        )
+        db.add(instance)
+        db.commit()
+        db.refresh(instance)
+        return instance, True 
