@@ -343,7 +343,7 @@ class FlowEngine:
                     )
 
                     body_dict.update(webhook_payload.model_dump())
-                    request_body = json.dumps(body_dict)
+                    request_body = json.dumps(body_dict, default=str)
                 except json.JSONDecodeError:
                     request_body = self._interpolate_variables(request_body, context.variables)
 
