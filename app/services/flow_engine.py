@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.models.flow import Flow
 from app.schemas.flow import FlowExecutionContext, FlowExecutionResult, WebhookPayload
+from app.models.telegram_bot import TelegramBot
+from app.models.user import User
 
 
 class FlowEngine:
@@ -288,6 +290,33 @@ class FlowEngine:
 
         elif action_type == "transfer_human":
             actions_performed.append("Transferred to human agent")
+
+        elif action_type == "notify_owner":
+            # Get bot and owner
+            bot_id = context.bot_id if hasattr(context, 'bot_id') else None
+            if not bot_id:
+                actions_performed.append("No bot_id in context; cannot notify owner")
+            else:
+                bot = TelegramBot.get_by_bot_id(self.db, bot_id)
+                if not bot:
+                    actions_performed.append(f"Bot not found for id {bot_id}")
+                else:
+                    owner = User.get_by_id(self.db, bot.user_id)
+                    if not owner or not owner.telegram_id:
+                        actions_performed.append(f"Owner not found or has no telegram_id for bot {bot_id}")
+                    else:
+                        # Compose message
+                        notify_message = params.get("message", "You have a new notification from your bot.")
+                        # Interpolate variables in the message
+                        notify_message = self._interpolate_variables(notify_message, context.variables)
+                        # Import here to avoid circular import
+                        from app.services.telegram_service import TelegramService
+                        await TelegramService.send_message(
+                            token=bot.token,
+                            chat_id=int(owner.telegram_id),
+                            text=notify_message
+                        )
+                        actions_performed.append(f"Notified owner {owner.username} via Telegram")
 
         next_node_id = self._find_next_node(flow, node["id"], output)
 
