@@ -108,6 +108,7 @@ class FlowResponse(FlowBase):
 
 class FlowExecutionContext(BaseModel):
     """Context for flow execution."""
+    bot_id: str
     user_id: str
     session_id: str
     current_node_id: Optional[str] = None
