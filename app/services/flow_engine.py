@@ -155,10 +155,11 @@ class FlowEngine:
             context: FlowExecutionContext
     ) -> FlowExecutionResult:
         """Execute start node - always move to the first outgoing edge, ignoring label and user_message."""
-        next_node_id = self._find_next_node(flow, node["id"], force_ignore_label=True)
+        next_node_id = self._find_next_node(flow, node["id"])
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
+            output=None,
             response_message=None  # Start node should not send a message
         )
 
@@ -204,6 +205,7 @@ class FlowEngine:
             return FlowExecutionResult(
                 success=True,
                 next_node_id=next_node_id,
+                output=input,
                 response_message=None,
                 quick_replies=None
             )
@@ -211,6 +213,7 @@ class FlowEngine:
             return FlowExecutionResult(
                 success=True,
                 next_node_id=node["id"],
+                output=input,
                 response_message="I couldn't understand your message. Please try again.",
                 quick_replies=quick_replies if quick_replies else None
             )
@@ -235,12 +238,14 @@ class FlowEngine:
         condition_met = self._evaluate_condition(input, condition_type, condition_value)
         print(f"Condition result: {condition_met}")
 
-        next_node_id = self._find_conditional_next_node(flow, node["id"], condition_met)
+        output = "true" if condition_met else "false"
+        next_node_id = self._find_next_node(flow, node["id"], output)
         print(f"Next node after condition: {next_node_id}")
 
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
+            output=output,
             variables_updated={"last_condition_result": condition_met}
         )
 
@@ -266,10 +271,12 @@ class FlowEngine:
         variables_updated = {}
         actions_performed = []
 
+        output = None
         if action_type == "set_variable":
             variable_name = params.get("variable")
             variable_value = params.get("value")
             if variable_name:
+                output = variable_value
                 variables_updated[variable_name] = variable_value
                 actions_performed.append(f"Set variable {variable_name} = {variable_value}")
 
@@ -282,11 +289,12 @@ class FlowEngine:
         elif action_type == "transfer_human":
             actions_performed.append("Transferred to human agent")
 
-        next_node_id = self._find_next_node(flow, node["id"])
+        next_node_id = self._find_next_node(flow, node["id"], output)
 
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
+            output=output,
             variables_updated=variables_updated,
             actions_performed=actions_performed
         )
@@ -439,7 +447,7 @@ class FlowEngine:
 
         # No validation or conversion, just store the input as-is
         variables_updated = {variable_name: input}
-        next_node_id = self._find_next_node(flow, node["id"], input=input)
+        next_node_id = self._find_next_node(flow, node["id"], input)
         return FlowExecutionResult(
             success=True,
             next_node_id=next_node_id,
@@ -464,81 +472,36 @@ class FlowEngine:
             response_message=self._interpolate_variables(message, context.variables)
         )
 
-    def _find_next_node(self, flow: Flow, current_node_id: str, input: str = None, force_ignore_label: bool = False) -> Optional[str]:
+    def _find_next_node(self, flow: Flow, current_node_id: str, input: str = None) -> Optional[str]:
         """
-        Find the next node in the flow based on input, with strict matching and similarity threshold. If force_ignore_label is True, always use the first outgoing edge regardless of label/input.
+        Find the next node in the flow based on input and edge conditions.
+        - If an edge's condition is empty, select and return its target immediately (first such edge).
+        - If not, look for an exact match (case-insensitive, trimmed) between input and condition (first such edge).
+        - If not, look for the best similarity above 0.7 between input and condition.
+        - If none match, return None.
         """
         edges = [edge for edge in flow.edges if edge["source"] == current_node_id]
         if not edges:
             return None
 
-        # If there is only one edge and its label is 'Next', 'Continue', or 'Default', follow it directly
-        if len(edges) == 1:
-            label = edges[0].get("label", "").strip().lower()
-            if label in ["next", "continue", "default"]:
-                return edges[0]["target"]
+        input_str = str(input).lower().strip() if input is not None else ""
 
-        if force_ignore_label:
-            return edges[0]["target"]
+        best_match = None
+        best_score = 0.0
+        for edge in edges:
+            condition = edge.get("condition", "").lower().strip()
+            if condition == "" or input_str == condition:
+                return edge["target"]
+            else:
+                score = self._calculate_similarity(input_str, condition)
+                if score > best_score:
+                    best_score = score
+                    best_match = edge
+            
+        if best_match and best_score >= 0.7:
+            return best_match["target"]
 
-        if input is not None:
-            input_str = str(input).lower().strip()
-            for edge in edges:
-                edge_label = edge.get("label", "").lower().strip()
-                if edge_label and edge_label == input_str:
-                    return edge["target"]
-
-            best_match = None
-            best_score = 0.0
-            for edge in edges:
-                edge_label = edge.get("label", "").lower().strip()
-                if edge_label:
-                    score = self._calculate_similarity(input_str, edge_label)
-                    if score > best_score:
-                        best_score = score
-                        best_match = edge
-            if best_match and best_score >= 0.7:
-                return best_match["target"]
-
-            return None
-
-        return edges[0]["target"] if edges else None
-
-    def _find_conditional_next_node(
-            self,
-            flow: Flow,
-            current_node_id: str,
-            condition_met: bool
-    ) -> Optional[str]:
-        """Find next node based on condition result."""
-        print(f"Finding conditional next node for {current_node_id}, condition_met: {condition_met}")
-        
-        # Look for edges with conditions
-        for edge in flow.edges:
-            if edge["source"] == current_node_id:
-                edge_condition = edge.get("condition")
-                edge_label = edge.get("label", "No label")
-                print(f"Checking edge: {edge['source']} -> {edge['target']} (label: {edge_label}, condition: {edge_condition})")
-                
-                if edge_condition:
-                    if (condition_met and edge_condition.lower() in ["true", "yes", "1"]) or \
-                            (not condition_met and edge_condition.lower() in ["false", "no", "0"]):
-                        print(f"Conditional edge matched: {edge['target']}")
-                        return edge["target"]
-                else:
-                    # Default edge (no condition) - use label to determine routing
-                    if edge_label.lower() in ["not services", "not support", "not about", "default"]:
-                        if not condition_met:
-                            print(f"Default edge matched (condition not met): {edge['target']}")
-                            return edge["target"]
-                    elif condition_met:
-                        print(f"Default edge matched (condition met): {edge['target']}")
-                        return edge["target"]
-
-        # If no conditional edge found, return first available edge
-        default_next = self._find_next_node(flow, current_node_id)
-        print(f"No conditional edge found, using default: {default_next}")
-        return default_next
+        return None
 
     def _evaluate_condition(self, input: str, condition_type: str, condition_value: str) -> bool:
         """
