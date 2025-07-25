@@ -35,6 +35,7 @@ class TelegramBot(Base):
     # Relationship
     user = relationship("User", back_populates="telegram_bots")
     flows = relationship("Flow", back_populates="bot", cascade="all, delete-orphan")
+    bot_users = relationship("BotUser", back_populates="bot", cascade="all, delete-orphan")
 
 
     @classmethod
