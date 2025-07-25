@@ -312,6 +312,7 @@ class TelegramService:
                 }
             
             context = FlowExecutionContext(
+                bot_id=bot.bot_id,
                 user_id=str(user_id),
                 session_id=session_id,
                 current_node_id=current_node_id,
@@ -350,13 +351,7 @@ class TelegramService:
                             }
 
                         return response
-                    else:
-                        # Flow executed successfully but no response message - this shouldn't happen
-                        return {
-                            "method": "sendMessage",
-                            "chat_id": chat_id,
-                            "text": "I'm having trouble processing your request. Please try again."
-                        }
+
                 else:
                     error_msg = f"Flow execution failed: {result.error_message}"
                     return {
