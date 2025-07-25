@@ -489,8 +489,11 @@ class FlowEngine:
         best_match = None
         best_score = 0.0
         for edge in edges:
-            condition = edge.get("condition", "").lower().strip()
-            if condition == "" or input_str == condition:
+            condition = edge.get("condition", "")
+            if not condition:
+                return edge["target"]
+            condition = condition.lower().strip()
+            if input_str == condition:
                 return edge["target"]
             else:
                 score = self._calculate_similarity(input_str, condition)
