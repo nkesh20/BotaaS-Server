@@ -320,6 +320,7 @@ class FlowEngine:
 
         elif action_type == "ban_chat_member":
             # Get bot and required parameters
+            output = 'false'
             bot_id = context.bot_id if hasattr(context, 'bot_id') else None
             if not bot_id:
                 actions_performed.append("No bot_id in context; cannot ban chat member")
@@ -354,6 +355,7 @@ class FlowEngine:
                             
                             if result["success"]:
                                 actions_performed.append(f"Successfully banned user {user_id} from chat {chat_id}")
+                                output = 'true'
                             else:
                                 actions_performed.append(f"Failed to ban user {user_id} from chat {chat_id}: {result.get('error', 'Unknown error')}")
                                 
@@ -361,6 +363,10 @@ class FlowEngine:
                             actions_performed.append(f"Invalid parameter format: {str(e)}")
                         except Exception as e:
                             actions_performed.append(f"Error banning chat member: {str(e)}")
+
+        elif action_type == "unban_chat_member":
+            # implement this
+            pass
 
         next_node_id = self._find_next_node(flow, node["id"], output)
 
