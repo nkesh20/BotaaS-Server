@@ -444,6 +444,47 @@ class TelegramService:
             }
 
     @classmethod
+    async def unban_chat_member(
+            cls,
+            token: str,
+            chat_id: int,
+            user_id: int,
+            only_if_banned: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Unban a member from a chat.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            user_id: Telegram user ID to unban
+            only_if_banned: If True, only unban if the user is currently banned
+
+        Returns:
+            Dict: Result with success status and details
+        """
+        try:
+            bot = Bot(token)
+            result = await bot.unban_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                only_if_banned=only_if_banned
+            )
+            
+            return {
+                "success": True,
+                "result": result,
+                "message": f"User {user_id} has been unbanned from chat {chat_id}"
+            }
+            
+        except TelegramError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to unban user {user_id} from chat {chat_id}"
+            }
+
+    @classmethod
     async def verify_webhook_setup(cls, bot_token: str) -> Dict[str, Any]:
         """
         Verify that the webhook is properly configured for a bot, returning legacy keys for compatibility.
