@@ -400,6 +400,50 @@ class TelegramService:
             }
 
     @classmethod
+    async def ban_chat_member(
+            cls,
+            token: str,
+            chat_id: int,
+            user_id: int,
+            until_date: Optional[int] = None,
+            revoke_messages: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ban a member from a chat.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            user_id: Telegram user ID to ban
+            until_date: Optional timestamp until when the user is banned (None for permanent ban)
+            revoke_messages: Whether to delete all messages from the user
+
+        Returns:
+            Dict: Result with success status and details
+        """
+        try:
+            bot = Bot(token)
+            result = await bot.ban_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                until_date=until_date,
+                revoke_messages=revoke_messages
+            )
+            
+            return {
+                "success": True,
+                "result": result,
+                "message": f"User {user_id} has been banned from chat {chat_id}"
+            }
+            
+        except TelegramError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to ban user {user_id} from chat {chat_id}"
+            }
+
+    @classmethod
     async def verify_webhook_setup(cls, bot_token: str) -> Dict[str, Any]:
         """
         Verify that the webhook is properly configured for a bot, returning legacy keys for compatibility.
