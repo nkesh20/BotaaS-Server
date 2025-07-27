@@ -334,6 +334,55 @@ class FlowEngine:
             actions_performed=actions_performed
         )
 
+    def _calculate_ban_until_date(self, params: Dict[str, Any]) -> Optional[int]:
+        """
+        Calculate the until_date timestamp for ban based on duration parameters.
+        Returns None for permanent ban, or Unix timestamp for temporary ban.
+        """
+        import time
+        
+        # Check for predefined durations first
+        custom_duration_value = params.get("custom_duration_value")
+        custom_duration_unit = params.get("custom_duration_unit")
+        
+        # If both are None, it's a permanent ban
+        if custom_duration_value is None and custom_duration_unit is None:
+            return None
+        
+        # If we have custom duration values, calculate the timestamp
+        if custom_duration_value is not None and custom_duration_unit is not None:
+            try:
+                duration_value = int(custom_duration_value)
+                duration_unit = str(custom_duration_unit)
+                
+                # Calculate the duration in seconds
+                duration_seconds = 0
+                if duration_unit == "minutes":
+                    duration_seconds = duration_value * 60
+                elif duration_unit == "hours":
+                    duration_seconds = duration_value * 3600
+                elif duration_unit == "days":
+                    duration_seconds = duration_value * 86400
+                elif duration_unit == "weeks":
+                    duration_seconds = duration_value * 604800
+                elif duration_unit == "months":
+                    # Approximate: 30 days per month
+                    duration_seconds = duration_value * 2592000
+                else:
+                    # Default to hours if unit is not recognized
+                    duration_seconds = duration_value * 3600
+                
+                # Calculate until_date as current time + duration
+                until_date = int(time.time()) + duration_seconds
+                return until_date
+                
+            except (ValueError, TypeError) as e:
+                # If conversion fails, return None (permanent ban)
+                return None
+        
+        # If we don't have valid duration parameters, return None (permanent ban)
+        return None
+
     async def _ban_chat_member(
             self,
             params: Dict[str, Any],
@@ -354,7 +403,7 @@ class FlowEngine:
                 # Get required parameters
                 chat_id = params.get("chat_id")
                 user_id = params.get("user_id")
-                until_date = params.get("until_date")  # Optional timestamp
+                until_date = self._calculate_ban_until_date(params)
                 revoke_messages = params.get("revoke_messages", False)
                 
                 if not chat_id or not user_id:
@@ -376,7 +425,8 @@ class FlowEngine:
                         )
                         
                         if result["success"]:
-                            actions_performed.append(f"Successfully banned user {user_id} from chat {chat_id}")
+                            ban_type = "permanently" if until_date is None else f"until {datetime.fromtimestamp(until_date).strftime('%Y-%m-%d %H:%M:%S')}"
+                            actions_performed.append(f"Successfully banned user {user_id} from chat {chat_id} {ban_type}")
                             output = 'true'
                         else:
                             actions_performed.append(f"Failed to ban user {user_id} from chat {chat_id}: {result.get('error', 'Unknown error')}")
