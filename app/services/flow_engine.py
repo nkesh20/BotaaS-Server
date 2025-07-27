@@ -324,6 +324,9 @@ class FlowEngine:
         elif action_type == "unban_chat_member":
             output = await self._unban_chat_member(params, context, actions_performed)
 
+        elif action_type == "delete_message":
+            output = await self._delete_message(params, context, actions_performed)
+
         next_node_id = self._find_next_node(flow, node["id"], output)
 
         return FlowExecutionResult(
@@ -488,6 +491,60 @@ class FlowEngine:
                         actions_performed.append(f"Invalid parameter format: {str(e)}")
                     except Exception as e:
                         actions_performed.append(f"Error unbanning chat member: {str(e)}")
+        
+        return output
+
+    async def _delete_message(
+            self,
+            params: Dict[str, Any],
+            context: FlowExecutionContext,
+            actions_performed: List[str]
+    ) -> str:
+        """Execute delete_message action and return output string."""
+        # Get bot and required parameters
+        output = 'false'
+        bot_id = context.bot_id if hasattr(context, 'bot_id') else None
+        if not bot_id:
+            actions_performed.append("No bot_id in context; cannot delete message")
+        else:
+            bot = TelegramBot.get_by_bot_id(self.db, bot_id)
+            if not bot:
+                actions_performed.append(f"Bot not found for id {bot_id}")
+            else:
+                # Get required parameters
+                chat_id = context.chat_id if hasattr(context, 'chat_id') else None
+                message_id = params.get("message_id")
+                
+                # If no message_id in params or it's empty/null, try to use the trigger_message_id from context
+                if (not message_id or message_id == "" or message_id is None) and hasattr(context, 'trigger_message_id') and context.trigger_message_id:
+                    message_id = context.trigger_message_id
+                
+                if not chat_id or not message_id:
+                    actions_performed.append("Missing required parameters: chat_id and message_id")
+                else:
+                    try:
+                        # Convert to integers if they're strings
+                        chat_id = int(chat_id)
+                        message_id = int(message_id)
+                        
+                        # Import here to avoid circular import
+                        from app.services.telegram_service import TelegramService
+                        result = await TelegramService.delete_message(
+                            token=bot.token,
+                            chat_id=chat_id,
+                            message_id=message_id
+                        )
+                        
+                        if result["success"]:
+                            actions_performed.append(f"Successfully deleted message {message_id} from chat {chat_id}")
+                            output = 'true'
+                        else:
+                            actions_performed.append(f"Failed to delete message {message_id} from chat {chat_id}: {result.get('error', 'Unknown error')}")
+                            
+                    except (ValueError, TypeError) as e:
+                        actions_performed.append(f"Invalid parameter format: {str(e)}")
+                    except Exception as e:
+                        actions_performed.append(f"Error deleting message: {str(e)}")
         
         return output
 

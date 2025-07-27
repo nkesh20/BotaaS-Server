@@ -112,6 +112,7 @@ class FlowExecutionContext(BaseModel):
     user_id: str
     chat_id: str
     session_id: str
+    trigger_message_id: Optional[str] = None  # ID of the message that triggered the flow
     current_node_id: Optional[str] = None
     variables: Dict[str, Any] = Field(default_factory=dict)
     history: List[Dict[str, Any]] = Field(default_factory=list)

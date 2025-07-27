@@ -316,6 +316,7 @@ class TelegramService:
                 user_id=str(user_id),
                 chat_id=str(chat_id),
                 session_id=session_id,
+                trigger_message_id=str(message.message_id),
                 current_node_id=current_node_id,
                 variables=variables
             )
@@ -483,6 +484,44 @@ class TelegramService:
                 "success": False,
                 "error": str(e),
                 "message": f"Failed to unban user {user_id} from chat {chat_id}"
+            }
+
+    @classmethod
+    async def delete_message(
+            cls,
+            token: str,
+            chat_id: int,
+            message_id: int
+    ) -> Dict[str, Any]:
+        """
+        Delete a message from a chat.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            message_id: Telegram message ID to delete
+
+        Returns:
+            Dict: Result with success status and details
+        """
+        try:
+            bot = Bot(token)
+            result = await bot.delete_message(
+                chat_id=chat_id,
+                message_id=message_id
+            )
+            
+            return {
+                "success": True,
+                "result": result,
+                "message": f"Message {message_id} has been deleted from chat {chat_id}"
+            }
+            
+        except TelegramError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to delete message {message_id} from chat {chat_id}"
             }
 
     @classmethod

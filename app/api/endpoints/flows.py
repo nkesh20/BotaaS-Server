@@ -246,6 +246,7 @@ async def execute_flow(
         user_id=user_id,
         chat_id="test_chat",  # Placeholder for testing
         session_id=session_id,
+        trigger_message_id=None,  # No message_id for API testing
         variables={}
     )
 
@@ -293,6 +294,7 @@ async def webhook_handler(
         user_id=user_id,
         chat_id=chat_id,
         session_id=session_id,
+        trigger_message_id=payload.get("message_id"),  # Extract message_id from payload if available
         variables=payload.get("variables", {})
     )
 
