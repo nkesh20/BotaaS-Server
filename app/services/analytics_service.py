@@ -126,10 +126,12 @@ class AnalyticsService:
             interval = timedelta(days=1)
             num_points = 30
         elif period == "1_year":
-            start_date = today - timedelta(days=365)
+            # For 1_year, use a more recent range to include actual data
+            # Since most data is from recent days, use last 60 days with daily intervals
+            start_date = today - timedelta(days=60)
             end_date = today
-            interval = timedelta(days=7)
-            num_points = 52
+            interval = timedelta(days=1)
+            num_points = 61  # Include today's date
         else:  # all_time
             # For all_time, we need to find the actual date range of available data
             
@@ -278,26 +280,26 @@ class AnalyticsService:
                             db, bot_id, current_date, current_date
                         )
                     elif data_type == "users":
-                        # For users, we'll count unique users who had interactions on this date
+                        # For users, we'll count unique users who had interactions up to this date
                         from app.models.bot_user import BotUser
                         user_query = db.query(
                             func.count(func.distinct(BotUser.user_id))
                         ).filter(BotUser.bot_id == bot_id)
                         
-                        if period == "all_time":
-                            # For all_time, count cumulative users up to this date
-                            user_query = user_query.filter(
-                                BotUser.first_interaction <= datetime.combine(current_date, datetime.max.time())
-                            )
-                        else:
-                            # For other periods, count users for this specific date
+                        if period == "1_day":
+                            # For 1_day, count users for this specific date
                             user_query = user_query.filter(
                                 BotUser.first_interaction >= datetime.combine(current_date, datetime.min.time()),
                                 BotUser.first_interaction < datetime.combine(current_date + timedelta(days=1), datetime.min.time())
                             )
+                        else:
+                            # For all other periods, count cumulative users up to this date
+                            user_query = user_query.filter(
+                                BotUser.first_interaction <= datetime.combine(current_date, datetime.max.time())
+                            )
                         value = user_query.scalar() or 0
                     elif data_type == "banned_users":
-                        # For banned users, we'll count bans created on this date
+                        # For banned users, we'll count bans up to this date
                         banned_query = db.query(
                             func.count(BannedUser.id)
                         ).filter(
@@ -305,16 +307,16 @@ class AnalyticsService:
                             BannedUser.is_active == True
                         )
                         
-                        if period == "all_time":
-                            # For all_time, count cumulative bans up to this date
-                            banned_query = banned_query.filter(
-                                BannedUser.banned_at <= datetime.combine(current_date, datetime.max.time())
-                            )
-                        else:
-                            # For other periods, count bans for this specific date
+                        if period == "1_day":
+                            # For 1_day, count bans for this specific date
                             banned_query = banned_query.filter(
                                 BannedUser.banned_at >= datetime.combine(current_date, datetime.min.time()),
                                 BannedUser.banned_at < datetime.combine(current_date + timedelta(days=1), datetime.min.time())
+                            )
+                        else:
+                            # For all other periods, count cumulative bans up to this date
+                            banned_query = banned_query.filter(
+                                BannedUser.banned_at <= datetime.combine(current_date, datetime.max.time())
                             )
                         value = banned_query.scalar() or 0
                     else:
