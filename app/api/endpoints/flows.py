@@ -242,7 +242,9 @@ async def execute_flow(
 
     # Create execution context
     context = FlowExecutionContext(
+        bot_id=str(bot_id),
         user_id=user_id,
+        chat_id="test_chat",  # Placeholder for testing
         session_id=session_id,
         variables={}
     )
@@ -285,8 +287,11 @@ async def webhook_handler(
 
     # Execute flow
     session_id = payload.get("session_id", f"session_{user_id}_{int(datetime.now().timestamp())}")
+    chat_id = payload.get("chat_id", "webhook_chat")  # Extract chat_id from payload or use default
     context = FlowExecutionContext(
+        bot_id=str(bot_id),
         user_id=user_id,
+        chat_id=chat_id,
         session_id=session_id,
         variables=payload.get("variables", {})
     )

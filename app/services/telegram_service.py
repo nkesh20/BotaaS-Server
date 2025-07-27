@@ -314,6 +314,7 @@ class TelegramService:
             context = FlowExecutionContext(
                 bot_id=bot.bot_id,
                 user_id=str(user_id),
+                chat_id=str(chat_id),
                 session_id=session_id,
                 current_node_id=current_node_id,
                 variables=variables
@@ -397,6 +398,91 @@ class TelegramService:
             return {
                 "success": False,
                 "error": str(e)
+            }
+
+    @classmethod
+    async def ban_chat_member(
+            cls,
+            token: str,
+            chat_id: int,
+            user_id: int,
+            until_date: Optional[int] = None,
+            revoke_messages: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Ban a member from a chat.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            user_id: Telegram user ID to ban
+            until_date: Optional timestamp until when the user is banned (None for permanent ban)
+            revoke_messages: Whether to delete all messages from the user
+
+        Returns:
+            Dict: Result with success status and details
+        """
+        try:
+            bot = Bot(token)
+            result = await bot.ban_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                until_date=until_date,
+                revoke_messages=revoke_messages
+            )
+            
+            return {
+                "success": True,
+                "result": result,
+                "message": f"User {user_id} has been banned from chat {chat_id}"
+            }
+            
+        except TelegramError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to ban user {user_id} from chat {chat_id}"
+            }
+
+    @classmethod
+    async def unban_chat_member(
+            cls,
+            token: str,
+            chat_id: int,
+            user_id: int,
+            only_if_banned: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Unban a member from a chat.
+
+        Args:
+            token: Bot token
+            chat_id: Telegram chat ID
+            user_id: Telegram user ID to unban
+            only_if_banned: If True, only unban if the user is currently banned
+
+        Returns:
+            Dict: Result with success status and details
+        """
+        try:
+            bot = Bot(token)
+            result = await bot.unban_chat_member(
+                chat_id=chat_id,
+                user_id=user_id,
+                only_if_banned=only_if_banned
+            )
+            
+            return {
+                "success": True,
+                "result": result,
+                "message": f"User {user_id} has been unbanned from chat {chat_id}"
+            }
+            
+        except TelegramError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"Failed to unban user {user_id} from chat {chat_id}"
             }
 
     @classmethod

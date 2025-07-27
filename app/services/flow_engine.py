@@ -318,6 +318,12 @@ class FlowEngine:
                         )
                         actions_performed.append(f"Notified owner {owner.username} via Telegram")
 
+        elif action_type == "ban_chat_member":
+            output = await self._ban_chat_member(params, context, actions_performed)
+
+        elif action_type == "unban_chat_member":
+            output = await self._unban_chat_member(params, context, actions_performed)
+
         next_node_id = self._find_next_node(flow, node["id"], output)
 
         return FlowExecutionResult(
@@ -327,6 +333,163 @@ class FlowEngine:
             variables_updated=variables_updated,
             actions_performed=actions_performed
         )
+
+    def _calculate_ban_until_date(self, params: Dict[str, Any]) -> Optional[int]:
+        """
+        Calculate the until_date timestamp for ban based on duration parameters.
+        Returns None for permanent ban, or Unix timestamp for temporary ban.
+        """
+        import time
+        
+        # Check for predefined durations first
+        custom_duration_value = params.get("custom_duration_value")
+        custom_duration_unit = params.get("custom_duration_unit")
+        
+        # If both are None, it's a permanent ban
+        if custom_duration_value is None and custom_duration_unit is None:
+            return None
+        
+        # If we have custom duration values, calculate the timestamp
+        if custom_duration_value is not None and custom_duration_unit is not None:
+            try:
+                duration_value = int(custom_duration_value)
+                duration_unit = str(custom_duration_unit)
+                
+                # Calculate the duration in seconds
+                duration_seconds = 0
+                if duration_unit == "minutes":
+                    duration_seconds = duration_value * 60
+                elif duration_unit == "hours":
+                    duration_seconds = duration_value * 3600
+                elif duration_unit == "days":
+                    duration_seconds = duration_value * 86400
+                elif duration_unit == "weeks":
+                    duration_seconds = duration_value * 604800
+                elif duration_unit == "months":
+                    # Approximate: 30 days per month
+                    duration_seconds = duration_value * 2592000
+                else:
+                    # Default to hours if unit is not recognized
+                    duration_seconds = duration_value * 3600
+                
+                # Calculate until_date as current time + duration
+                until_date = int(time.time()) + duration_seconds
+                return until_date
+                
+            except (ValueError, TypeError) as e:
+                # If conversion fails, return None (permanent ban)
+                return None
+        
+        # If we don't have valid duration parameters, return None (permanent ban)
+        return None
+
+    async def _ban_chat_member(
+            self,
+            params: Dict[str, Any],
+            context: FlowExecutionContext,
+            actions_performed: List[str]
+    ) -> str:
+        print(f"Banning chat member with params: {params}")
+        """Execute ban_chat_member action and return output string."""
+        # Get bot and required parameters
+        output = 'false'
+        bot_id = context.bot_id if hasattr(context, 'bot_id') else None
+        if not bot_id:
+            actions_performed.append("No bot_id in context; cannot ban chat member")
+        else:
+            bot = TelegramBot.get_by_bot_id(self.db, bot_id)
+            if not bot:
+                actions_performed.append(f"Bot not found for id {bot_id}")
+            else:
+                # Get required parameters
+                chat_id = context.chat_id if hasattr(context, 'chat_id') else None
+                user_id = context.user_id if hasattr(context, 'user_id') else None
+                until_date = self._calculate_ban_until_date(params)
+                revoke_messages = params.get("revoke_messages", False)
+                
+                if not chat_id or not user_id:
+                    actions_performed.append("Missing required parameters: chat_id and user_id")
+                else:
+                    try:
+                        # Convert to integers if they're strings
+                        chat_id = int(chat_id)
+                        user_id = int(user_id)
+                        
+                        # Import here to avoid circular import
+                        from app.services.telegram_service import TelegramService
+                        result = await TelegramService.ban_chat_member(
+                            token=bot.token,
+                            chat_id=chat_id,
+                            user_id=user_id,
+                            until_date=until_date,
+                            revoke_messages=revoke_messages
+                        )
+                        
+                        if result["success"]:
+                            ban_type = "permanently" if until_date is None else f"until {datetime.fromtimestamp(until_date).strftime('%Y-%m-%d %H:%M:%S')}"
+                            actions_performed.append(f"Successfully banned user {user_id} from chat {chat_id} {ban_type}")
+                            output = 'true'
+                        else:
+                            actions_performed.append(f"Failed to ban user {user_id} from chat {chat_id}: {result.get('error', 'Unknown error')}")
+                            
+                    except (ValueError, TypeError) as e:
+                        actions_performed.append(f"Invalid parameter format: {str(e)}")
+                    except Exception as e:
+                        actions_performed.append(f"Error banning chat member: {str(e)}")
+        
+        return output
+
+    async def _unban_chat_member(
+            self,
+            params: Dict[str, Any],
+            context: FlowExecutionContext,
+            actions_performed: List[str]
+    ) -> str:
+        """Execute unban_chat_member action and return output string."""
+        # Get bot and required parameters
+        output = 'false'
+        bot_id = context.bot_id if hasattr(context, 'bot_id') else None
+        if not bot_id:
+            actions_performed.append("No bot_id in context; cannot unban chat member")
+        else:
+            bot = TelegramBot.get_by_bot_id(self.db, bot_id)
+            if not bot:
+                actions_performed.append(f"Bot not found for id {bot_id}")
+            else:
+                # Get required parameters
+                chat_id = context.chat_id if hasattr(context, 'chat_id') else None
+                user_id = context.user_id if hasattr(context, 'user_id') else None
+                only_if_banned = params.get("only_if_banned", True)
+                
+                if not chat_id or not user_id:
+                    actions_performed.append("Missing required parameters: chat_id and user_id")
+                else:
+                    try:
+                        # Convert to integers if they're strings
+                        chat_id = int(chat_id)
+                        user_id = int(user_id)
+                        
+                        # Import here to avoid circular import
+                        from app.services.telegram_service import TelegramService
+                        result = await TelegramService.unban_chat_member(
+                            token=bot.token,
+                            chat_id=chat_id,
+                            user_id=user_id,
+                            only_if_banned=only_if_banned
+                        )
+                        
+                        if result["success"]:
+                            actions_performed.append(f"Successfully unbanned user {user_id} from chat {chat_id}")
+                            output = 'true'
+                        else:
+                            actions_performed.append(f"Failed to unban user {user_id} from chat {chat_id}: {result.get('error', 'Unknown error')}")
+                            
+                    except (ValueError, TypeError) as e:
+                        actions_performed.append(f"Invalid parameter format: {str(e)}")
+                    except Exception as e:
+                        actions_performed.append(f"Error unbanning chat member: {str(e)}")
+        
+        return output
 
     async def _execute_webhook_node(
             self,
@@ -465,7 +628,6 @@ class FlowEngine:
         node_data = node.get("data", {})
         input_type = node_data.get("input_type", "text")
         variable_name = node_data.get("variable_name")
-        prompt_message = node_data.get("prompt") or node_data.get("content") or "Please provide input."
 
         if not variable_name:
             return FlowExecutionResult(
@@ -477,7 +639,7 @@ class FlowEngine:
             return FlowExecutionResult(
                 success=True,
                 next_node_id=node["id"],
-                response_message=prompt_message
+                response_message=None
             )
 
         # No validation or conversion, just store the input as-is
