@@ -389,6 +389,7 @@ class FlowEngine:
             context: FlowExecutionContext,
             actions_performed: List[str]
     ) -> str:
+        print(f"Banning chat member with params: {params}")
         """Execute ban_chat_member action and return output string."""
         # Get bot and required parameters
         output = 'false'
@@ -401,8 +402,8 @@ class FlowEngine:
                 actions_performed.append(f"Bot not found for id {bot_id}")
             else:
                 # Get required parameters
-                chat_id = params.get("chat_id")
-                user_id = params.get("user_id")
+                chat_id = context.chat_id if hasattr(context, 'chat_id') else None
+                user_id = context.user_id if hasattr(context, 'user_id') else None
                 until_date = self._calculate_ban_until_date(params)
                 revoke_messages = params.get("revoke_messages", False)
                 
@@ -456,8 +457,8 @@ class FlowEngine:
                 actions_performed.append(f"Bot not found for id {bot_id}")
             else:
                 # Get required parameters
-                chat_id = params.get("chat_id")
-                user_id = params.get("user_id")
+                chat_id = context.chat_id if hasattr(context, 'chat_id') else None
+                user_id = context.user_id if hasattr(context, 'user_id') else None
                 only_if_banned = params.get("only_if_banned", True)
                 
                 if not chat_id or not user_id:
@@ -621,7 +622,6 @@ class FlowEngine:
         node_data = node.get("data", {})
         input_type = node_data.get("input_type", "text")
         variable_name = node_data.get("variable_name")
-        prompt_message = node_data.get("prompt") or node_data.get("content") or "Please provide input."
 
         if not variable_name:
             return FlowExecutionResult(
@@ -633,7 +633,7 @@ class FlowEngine:
             return FlowExecutionResult(
                 success=True,
                 next_node_id=node["id"],
-                response_message=prompt_message
+                response_message=None
             )
 
         # No validation or conversion, just store the input as-is

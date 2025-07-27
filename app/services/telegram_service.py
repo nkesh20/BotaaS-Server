@@ -314,6 +314,7 @@ class TelegramService:
             context = FlowExecutionContext(
                 bot_id=bot.bot_id,
                 user_id=str(user_id),
+                chat_id=str(chat_id),
                 session_id=session_id,
                 current_node_id=current_node_id,
                 variables=variables

@@ -110,6 +110,7 @@ class FlowExecutionContext(BaseModel):
     """Context for flow execution."""
     bot_id: str
     user_id: str
+    chat_id: str
     session_id: str
     current_node_id: Optional[str] = None
     variables: Dict[str, Any] = Field(default_factory=dict)
