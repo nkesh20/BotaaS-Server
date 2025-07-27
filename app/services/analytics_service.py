@@ -150,6 +150,11 @@ class AnalyticsService:
                 num_points = len(actual_dates)
                 # We'll use the actual dates instead of intervals
                 use_actual_dates = True
+                
+                # Add a baseline date before the first actual date to start from 0
+                baseline_date = start_date - timedelta(days=1)
+                actual_dates.insert(0, baseline_date)
+                num_points = len(actual_dates)
             else:
                 # No data available, use default range
                 start_date = today - timedelta(days=365)
@@ -232,31 +237,50 @@ class AnalyticsService:
                             db, bot_id, current_date, current_date
                         )
                     elif data_type == "chats":
-                        value = ChatUserMessageCount.get_unique_chats_for_period(
-                            db, bot_id, current_date, current_date
-                        )
+                        # For chats, count cumulative unique chats up to this date
+                        # Special handling for baseline date (should be 0)
+                        if i == 0 and current_date == baseline_date:
+                            value = 0
+                        else:
+                            chat_query = db.query(
+                                func.count(func.distinct(ChatUserMessageCount.chat_id))
+                            ).join(
+                                BotUser, ChatUserMessageCount.user_id == BotUser.user_id
+                            ).filter(BotUser.bot_id == bot_id)
+                            chat_query = chat_query.filter(
+                                ChatUserMessageCount.date <= current_date
+                            )
+                            value = chat_query.scalar() or 0
                     elif data_type == "users":
                         # For users, count cumulative users up to this date
-                        from app.models.bot_user import BotUser
-                        user_query = db.query(
-                            func.count(func.distinct(BotUser.user_id))
-                        ).filter(BotUser.bot_id == bot_id)
-                        user_query = user_query.filter(
-                            BotUser.first_interaction <= datetime.combine(current_date, datetime.max.time())
-                        )
-                        value = user_query.scalar() or 0
+                        # Special handling for baseline date (should be 0)
+                        if i == 0 and current_date == baseline_date:
+                            value = 0
+                        else:
+                            from app.models.bot_user import BotUser
+                            user_query = db.query(
+                                func.count(func.distinct(BotUser.user_id))
+                            ).filter(BotUser.bot_id == bot_id)
+                            user_query = user_query.filter(
+                                BotUser.first_interaction <= datetime.combine(current_date, datetime.max.time())
+                            )
+                            value = user_query.scalar() or 0
                     elif data_type == "banned_users":
                         # For banned users, count cumulative bans up to this date
-                        banned_query = db.query(
-                            func.count(BannedUser.id)
-                        ).filter(
-                            BannedUser.bot_id == bot_id,
-                            BannedUser.is_active == True
-                        )
-                        banned_query = banned_query.filter(
-                            BannedUser.banned_at <= datetime.combine(current_date, datetime.max.time())
-                        )
-                        value = banned_query.scalar() or 0
+                        # Special handling for baseline date (should be 0)
+                        if i == 0 and current_date == baseline_date:
+                            value = 0
+                        else:
+                            banned_query = db.query(
+                                func.count(BannedUser.id)
+                            ).filter(
+                                BannedUser.bot_id == bot_id,
+                                BannedUser.is_active == True
+                            )
+                            banned_query = banned_query.filter(
+                                BannedUser.banned_at <= datetime.combine(current_date, datetime.max.time())
+                            )
+                            value = banned_query.scalar() or 0
                     else:
                         value = 0
 
@@ -276,9 +300,16 @@ class AnalyticsService:
                             db, bot_id, current_date, current_date
                         )
                     elif data_type == "chats":
-                        value = ChatUserMessageCount.get_unique_chats_for_period(
-                            db, bot_id, current_date, current_date
+                        # For chats, count cumulative unique chats up to this date
+                        chat_query = db.query(
+                            func.count(func.distinct(ChatUserMessageCount.chat_id))
+                        ).join(
+                            BotUser, ChatUserMessageCount.user_id == BotUser.user_id
+                        ).filter(BotUser.bot_id == bot_id)
+                        chat_query = chat_query.filter(
+                            ChatUserMessageCount.date <= current_date
                         )
+                        value = chat_query.scalar() or 0
                     elif data_type == "users":
                         # For users, we'll count unique users who had interactions up to this date
                         from app.models.bot_user import BotUser
