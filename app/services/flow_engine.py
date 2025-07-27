@@ -515,8 +515,8 @@ class FlowEngine:
                 chat_id = context.chat_id if hasattr(context, 'chat_id') else None
                 message_id = params.get("message_id")
                 
-                # If no message_id in params, try to use the trigger_message_id from context
-                if not message_id and hasattr(context, 'trigger_message_id') and context.trigger_message_id:
+                # If no message_id in params or it's empty/null, try to use the trigger_message_id from context
+                if (not message_id or message_id == "" or message_id is None) and hasattr(context, 'trigger_message_id') and context.trigger_message_id:
                     message_id = context.trigger_message_id
                 
                 if not chat_id or not message_id:
