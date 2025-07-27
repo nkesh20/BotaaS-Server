@@ -531,6 +531,42 @@ async def get_bot_analytics_all_periods(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{bot_id}/analytics/trend", response_model=Dict[str, Any])
+async def get_bot_analytics_trend(
+        bot_id: int,
+        period: str = "all_time",
+        data_type: str = "messages",
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Get trend data for charts with time-based filtering.
+    Query Parameters:
+    - period: Time period ('1_day', '1_week', '1_month', '1_year', 'all_time')
+    - data_type: Type of data ('messages', 'chats', 'users', 'banned_users')
+    """
+    try:
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        if bot.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this bot")
+
+        from app.services.analytics_service import AnalyticsService
+        trend_data = AnalyticsService.get_trend_data(db, bot_id, period, data_type)
+
+        return {
+            "bot": {
+                "id": bot.id,
+                "username": bot.username,
+                "first_name": bot.first_name
+            },
+            "trend_data": trend_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{bot_id}/fix-webhook")
 async def fix_webhook(
         bot_id: int,
