@@ -372,7 +372,7 @@ class FlowEngine:
                     )
 
                     body_dict.update(webhook_payload.model_dump())
-                    request_body = json.dumps(body_dict)
+                    request_body = json.dumps(body_dict, default=str)
                 except json.JSONDecodeError:
                     request_body = self._interpolate_variables(request_body, context.variables)
 
@@ -415,9 +415,15 @@ class FlowEngine:
                     variables_updated = {}
                     response_message = None
 
+                    response_variables = node_data.get("response_variables", [])
+                    variables_updated["response"] = response_data if response_data else "No response to display"
+
                     if isinstance(response_data, dict):
-                        if "variables" in response_data:
-                            variables_updated.update(response_data["variables"])
+                        # If response_variables is specified and non-empty, only extract those
+                        if response_variables:
+                            for var in response_variables:
+                                if var in response_data:
+                                    variables_updated[var] = response_data[var]
                         if "message" in response_data:
                             response_message = response_data["message"]
 
@@ -636,10 +642,18 @@ class FlowEngine:
         if not text or not variables:
             return text
 
+        import json
         # Replace {{variable_name}} with actual values
         for var_name, var_value in variables.items():
             placeholder = f"{{{{{var_name}}}}}"
-            text = text.replace(placeholder, str(var_value))
+            if isinstance(var_value, (dict, list)):
+                try:
+                    pretty = json.dumps(var_value, ensure_ascii=False, indent=2)
+                except Exception:
+                    pretty = str(var_value)
+                text = text.replace(placeholder, pretty)
+            else:
+                text = text.replace(placeholder, str(var_value))
 
         return text
 
