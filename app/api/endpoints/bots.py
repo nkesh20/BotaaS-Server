@@ -465,6 +465,69 @@ async def get_bot_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{bot_id}/analytics", response_model=Dict[str, Any])
+async def get_bot_analytics(
+        bot_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Get analytics data for a specific bot including chat count.
+    """
+    try:
+        # Get bot from database
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+
+        # Count unique chats for this bot
+        # We need to join through BotUser and ChatUserMessageCount to get unique chats
+        from sqlalchemy import distinct, func
+        from app.models.bot_user import BotUser
+        from app.models.chat_user_message_count import ChatUserMessageCount
+
+        # Get unique chat count for this bot
+        chat_count_result = db.query(
+            func.count(distinct(ChatUserMessageCount.chat_id))
+        ).join(
+            BotUser, BotUser.user_id == ChatUserMessageCount.user_id
+        ).filter(
+            BotUser.bot_id == bot_id
+        ).scalar()
+
+        # Get total message count for this bot
+        message_count_result = db.query(
+            func.sum(ChatUserMessageCount.message_count)
+        ).join(
+            BotUser, BotUser.user_id == ChatUserMessageCount.user_id
+        ).filter(
+            BotUser.bot_id == bot_id
+        ).scalar()
+
+        # Get unique user count for this bot
+        user_count_result = db.query(
+            func.count(distinct(BotUser.user_id))
+        ).filter(
+            BotUser.bot_id == bot_id
+        ).scalar()
+
+        return {
+            "bot": {
+                "id": bot.id,
+                "username": bot.username,
+                "first_name": bot.first_name
+            },
+            "analytics": {
+                "total_chats": chat_count_result or 0,
+                "total_messages": message_count_result or 0,
+                "unique_users": user_count_result or 0
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{bot_id}/fix-webhook")
 async def fix_webhook(
         bot_id: int,
