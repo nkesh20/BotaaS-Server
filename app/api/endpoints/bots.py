@@ -468,52 +468,24 @@ async def get_bot_status(
 @router.get("/{bot_id}/analytics", response_model=Dict[str, Any])
 async def get_bot_analytics(
         bot_id: int,
+        period: str = "all_time",  # Query parameter for time period
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
     """
-    Get analytics data for a specific bot including chat count.
+    Get analytics data for a specific bot with time-based filtering.
+    Query Parameters:
+    - period: Time period ('1_day', '1_week', '1_month', '1_year', 'all_time')
     """
     try:
-        # Get bot from database
         bot = TelegramBot.get_by_id(db, bot_id)
         if not bot:
             raise HTTPException(status_code=404, detail="Bot not found")
+        if bot.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this bot")
 
-        # Count unique chats for this bot
-        # We need to join through BotUser and ChatUserMessageCount to get unique chats
-        from sqlalchemy import distinct, func
-        from app.models.bot_user import BotUser
-        from app.models.chat_user_message_count import ChatUserMessageCount
-
-        # Get unique chat count for this bot
-        chat_count_result = db.query(
-            func.count(distinct(ChatUserMessageCount.chat_id))
-        ).join(
-            BotUser, BotUser.user_id == ChatUserMessageCount.user_id
-        ).filter(
-            BotUser.bot_id == bot_id
-        ).scalar()
-
-        # Get total message count for this bot
-        message_count_result = db.query(
-            func.sum(ChatUserMessageCount.message_count)
-        ).join(
-            BotUser, BotUser.user_id == ChatUserMessageCount.user_id
-        ).filter(
-            BotUser.bot_id == bot_id
-        ).scalar()
-
-        # Get unique user count for this bot
-        user_count_result = db.query(
-            func.count(distinct(BotUser.user_id))
-        ).filter(
-            BotUser.bot_id == bot_id
-        ).scalar()
-
-        # Get banned user count for this bot
-        from app.models.banned_user import BannedUser
-        banned_users_count = BannedUser.get_ban_count_for_bot(db, bot_id)
+        from app.services.analytics_service import AnalyticsService
+        analytics_data = AnalyticsService.get_analytics_for_period(db, bot_id, period)
 
         return {
             "bot": {
@@ -521,14 +493,40 @@ async def get_bot_analytics(
                 "username": bot.username,
                 "first_name": bot.first_name
             },
-            "analytics": {
-                "total_chats": chat_count_result or 0,
-                "total_messages": message_count_result or 0,
-                "unique_users": user_count_result or 0,
-                "banned_users": banned_users_count
-            }
+            "analytics": analytics_data,
+            "period": period
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/{bot_id}/analytics/all-periods", response_model=Dict[str, Any])
+async def get_bot_analytics_all_periods(
+        bot_id: int,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """
+    Get analytics data for a specific bot for all time periods.
+    """
+    try:
+        bot = TelegramBot.get_by_id(db, bot_id)
+        if not bot:
+            raise HTTPException(status_code=404, detail="Bot not found")
+        if bot.user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to access this bot")
+
+        from app.services.analytics_service import AnalyticsService
+        all_periods_data = AnalyticsService.get_all_periods_analytics(db, bot_id)
+
+        return {
+            "bot": {
+                "id": bot.id,
+                "username": bot.username,
+                "first_name": bot.first_name
+            },
+            "analytics": all_periods_data
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
