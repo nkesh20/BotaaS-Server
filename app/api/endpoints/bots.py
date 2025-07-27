@@ -511,6 +511,10 @@ async def get_bot_analytics(
             BotUser.bot_id == bot_id
         ).scalar()
 
+        # Get banned user count for this bot
+        from app.models.banned_user import BannedUser
+        banned_users_count = BannedUser.get_ban_count_for_bot(db, bot_id)
+
         return {
             "bot": {
                 "id": bot.id,
@@ -520,7 +524,8 @@ async def get_bot_analytics(
             "analytics": {
                 "total_chats": chat_count_result or 0,
                 "total_messages": message_count_result or 0,
-                "unique_users": user_count_result or 0
+                "unique_users": user_count_result or 0,
+                "banned_users": banned_users_count
             }
         }
 
