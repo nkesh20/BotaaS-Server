@@ -316,6 +316,7 @@ class TelegramService:
                 user_id=str(user_id),
                 chat_id=str(chat_id),
                 session_id=session_id,
+                trigger_message_id=str(message.message_id),
                 current_node_id=current_node_id,
                 variables=variables
             )
