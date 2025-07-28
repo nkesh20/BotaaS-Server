@@ -22,7 +22,8 @@ python-multipart = "^0.0.20"
 email-validator = "^2.2.0"
 psycopg2-binary = "^2.9.10"
 alembic = "^1.16.4"
-
+torch = "^2.6.0"
+transformers = "^4.52.4"
 
 [build-system]
 requires = ["poetry-core"]
