@@ -251,20 +251,8 @@ class TelegramService:
                 )
                 existing_user = User.create(db, user_create)
 
-            # Update message count for this user in this chat
-            message_count_record = ChatUserMessageCount.get_by_id(db, chat_id, existing_user.id)
-            if message_count_record:
-                # Increment message count
-                ChatUserMessageCount.update(db, chat_id, existing_user.id, {
-                    "message_count": message_count_record.message_count + 1
-                })
-            else:
-                # Create new record with count of 1
-                ChatUserMessageCount.create(db, {
-                    "chat_id": chat_id,
-                    "user_id": existing_user.id,
-                    "message_count": 1
-                })
+            # Update message count for this user in this chat for today
+            ChatUserMessageCount.increment_message_count(db, chat_id, existing_user.id)
 
             # Find the bot by token
             bot = TelegramBot.get_by_token(db, bot_token)

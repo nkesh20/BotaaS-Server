@@ -429,6 +429,16 @@ class FlowEngine:
                         )
                         
                         if result["success"]:
+                            # Record the ban in our database
+                            from app.models.banned_user import BannedUser
+                            BannedUser.create_ban(
+                                db=self.db,
+                                bot_id=bot.id,
+                                telegram_user_id=user_id,
+                                chat_id=chat_id,
+                                reason=params.get("reason")
+                            )
+                            
                             ban_type = "permanently" if until_date is None else f"until {datetime.fromtimestamp(until_date).strftime('%Y-%m-%d %H:%M:%S')}"
                             actions_performed.append(f"Successfully banned user {user_id} from chat {chat_id} {ban_type}")
                             output = 'true'
@@ -482,6 +492,15 @@ class FlowEngine:
                         )
                         
                         if result["success"]:
+                            # Record the unban in our database
+                            from app.models.banned_user import BannedUser
+                            BannedUser.unban_user(
+                                db=self.db,
+                                bot_id=bot.id,
+                                telegram_user_id=user_id,
+                                chat_id=chat_id
+                            )
+                            
                             actions_performed.append(f"Successfully unbanned user {user_id} from chat {chat_id}")
                             output = 'true'
                         else:
