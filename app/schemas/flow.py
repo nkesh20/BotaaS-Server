@@ -24,6 +24,7 @@ class FlowNodeData(BaseModel):
     conditions: Optional[List[Any]] = None
     webhookUrl: Optional[str] = None
     color: Optional[str] = None
+    toxicity_sensitivity: Optional[float] = None
 
     class Config:
         extra = "allow"  # Allow extra fields like color

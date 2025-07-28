@@ -10,6 +10,7 @@ from app.models.flow import Flow
 from app.schemas.flow import FlowExecutionContext, FlowExecutionResult, WebhookPayload
 from app.models.telegram_bot import TelegramBot
 from app.models.user import User
+from app.services.toxicity_estimator import get_toxicity_estimator
 
 
 class FlowEngine:
@@ -230,14 +231,7 @@ class FlowEngine:
         """
         Execute condition node - evaluate condition and route accordingly.
         """
-        node_data = node.get("data", {})
-        condition_type = node_data.get("condition_type", "equals")
-        condition_value = node_data.get("condition_value", "")
-
-        print(f"Evaluating condition: {condition_type} '{condition_value}' against '{input}'")
-
-        condition_value = self._interpolate_variables(condition_value, context.variables)
-        condition_met = self._evaluate_condition(input, condition_type, condition_value)
+        condition_met = self._evaluate_condition(input, node, context)
         print(f"Condition result: {condition_met}")
 
         output = "true" if condition_met else "false"
@@ -779,13 +773,21 @@ class FlowEngine:
 
         return None
 
-    def _evaluate_condition(self, input: str, condition_type: str, condition_value: str) -> bool:
+    def _evaluate_condition(self, input: str, node: Dict[str, Any], context: FlowExecutionContext) -> bool:
         """
         Evaluate a condition against input.
         Supported types: equals, contains, number, email, phone_number, date, regex
         """
         input_str = input.strip()
+        node_data = node.get("data", {})
+        
+        condition_type = node_data.get("condition_type", "equals")
+
+        condition_value = node_data.get("condition_value", "")
+        condition_value = self._interpolate_variables(condition_value, context.variables)
         condition_value_str = condition_value.strip()
+
+        toxicity_sensitivity = node_data.get("toxicity_sensitivity", 0.5)
 
         if condition_type == "equals":
             return input_str.lower() == condition_value_str.lower()
@@ -820,7 +822,30 @@ class FlowEngine:
             ]
             input_str = input_str.strip()
             return any(re.fullmatch(pattern, input_str) for pattern in date_patterns)
+        elif condition_type == "toxicity":
+            return self._evaluate_toxicity(input_str, toxicity_sensitivity)
         else:
+            return False
+
+    def _evaluate_toxicity(self, input_str: str, toxicity_sensitivity: float) -> bool:
+        try:
+            toxicity_estimator = get_toxicity_estimator()
+            raw_score = toxicity_estimator.get_toxicity(input_str)
+
+            print(f"input: {input_str}")
+            print(f"Raw score: {raw_score}")
+
+            if raw_score < 0.3: # not toxic
+                return False
+            elif raw_score > 0.7: # very toxic
+                return True
+
+            actual_score = (raw_score - 0.3) / 0.4 # normalize in range [0.3, 0.6]
+            return actual_score >= (1 - toxicity_sensitivity)
+            
+        except Exception as e:
+            # Log the error and return False as a safe default
+            print(f"Error evaluating toxicity for text: {e}")
             return False
 
     def _validate_input(self, input_value: str, input_type: str, validation_pattern: Optional[str]) -> Optional[str]:

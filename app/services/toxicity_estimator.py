@@ -66,7 +66,7 @@ class ToxicityEstimator:
     def get_batch_toxicity(self, texts: list[str]) -> list[float]:
         results = []
         for text in texts:
-            results.append(self.is_toxic(text))
+            results.append(self.get_toxicity(text))
         return results
 
 # Global instance for easy access
