@@ -1,3 +1,5 @@
+[![ka](https://img.shields.io/badge/lang-pt--br-green.svg)]()
+
 # BotaaS-Server# BotaaS Server
 
 Backend server for Bot as a Service (BotaaS) built with FastAPI.
