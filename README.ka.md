@@ -1,3 +1,5 @@
+[![en](https://img.shields.io/badge/lang-en-blue.svg)](https://github.com/nkesh20/BotaaS-Server/blob/readme/README.md)
+
 # BotaaS-Server# BotaaS სერვერი
 
 Bot as a Service (BotaaS) ბექენდ სერვერი, რომელიც აგებულია FastAPI-სთან.

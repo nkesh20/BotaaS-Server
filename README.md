@@ -1,4 +1,4 @@
-[![ka](https://img.shields.io/badge/lang-pt--br-green.svg)]()
+[![ka](https://img.shields.io/badge/lang-ka-red.svg)](https://github.com/nkesh20/BotaaS-Server/blob/readme/README.ka.md)
 
 # BotaaS-Server# BotaaS Server
 
